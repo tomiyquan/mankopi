@@ -15,7 +15,7 @@ import { idr } from "../lib/money";
 import { noticeHandlers } from "../lib/notify";
 import { useAuth } from "../lib/auth";
 import { useWorkspace } from "../lib/workspace";
-import { Button, Card, PageHeader, TableWrap, Td, Th } from "../ui/kit";
+import { Button, Card, Dialog, DialogBody, DialogHeader, PageHeader, TableWrap, Td, Th } from "../ui/kit";
 import { TenantGate } from "../ui/TenantGate";
 import { MemberFormFields } from "./MemberFormFields";
 
@@ -103,14 +103,14 @@ export function MembersPage() {
               <Th>Pekerjaan</Th>
               <Th>Kantor</Th>
               <Th>Berkas</Th>
-              <Th>Aksi</Th>
+              <Th className="sticky right-0 z-[1] bg-canvas/95 text-right shadow-[-8px_0_12px_-10px_rgba(18,36,28,0.18)]">Aksi</Th>
             </tr>
           </thead>
           <tbody>
             {members.data?.map((m) => {
               const complete = memberCompleteness(m);
               return (
-                <tr key={m.id} className="border-t border-line/70">
+                <tr key={m.id} className="group border-t border-line/70">
                   <Td className="font-mono">{m.memberNo}</Td>
                   <Td>
                     <p className="font-semibold">{m.name}</p>
@@ -129,8 +129,8 @@ export function MembersPage() {
                     <span className={complete.percent < 60 ? "text-clay" : "text-leaf-dark"}>{complete.percent}%</span>
                     <span className="text-mute"> · {MEMBER_TYPE_LABEL[m.memberType ?? "REGULAR"] ?? m.memberType}</span>
                   </Td>
-                  <Td>
-                    <Button size="sm" variant="soft" onClick={() => setOpenId(m.id)}>
+                  <Td className="sticky right-0 z-[1] bg-white text-right shadow-[-8px_0_12px_-10px_rgba(18,36,28,0.12)] group-hover:bg-[#f3faf6]">
+                    <Button size="sm" variant="soft" className="whitespace-nowrap" onClick={() => setOpenId(m.id)}>
                       Buka berkas
                     </Button>
                   </Td>
@@ -180,52 +180,50 @@ function MemberDossier({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-leaf-deep/40 p-3 backdrop-blur-sm sm:p-6">
-      <section className="relative my-auto w-full max-w-4xl rounded-2.5xl border border-line/80 bg-white shadow-pop">
-        <header className="flex items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-leaf-dark">{member.memberNo}</p>
-            <h2 className="mt-1 text-xl font-extrabold tracking-tight">{member.name}</h2>
-            <p className="mt-1 text-sm text-mute">
-              {labeled(MEMBER_TYPE_LABEL, member.memberType)} · kelengkapan {memberCompleteness(member).percent}%
-            </p>
-          </div>
-          <div className="flex gap-2">
-            {canWrite && !editing ? (
-              <Button size="sm" onClick={() => setEditing(true)}>
-                Lengkapi berkas
-              </Button>
-            ) : null}
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              Tutup
-            </Button>
-          </div>
-        </header>
-        <div className="px-5 py-5">
-          {editing ? (
-            <form
-              className="space-y-5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                save.mutate();
-              }}
-            >
-              <MemberFormFields form={form} setForm={setForm} branches={branches} lockNik />
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
-                  Batal
-                </Button>
-                <Button type="submit" disabled={save.isPending}>
-                  Simpan berkas
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <MemberReadout member={member} />
-          )}
+    <Dialog onClose={onClose} className="max-w-4xl">
+      <DialogHeader>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-leaf-dark">{member.memberNo}</p>
+          <h2 className="mt-1 text-xl font-extrabold tracking-tight">{member.name}</h2>
+          <p className="mt-1 text-sm text-mute">
+            {labeled(MEMBER_TYPE_LABEL, member.memberType)} · kelengkapan {memberCompleteness(member).percent}%
+          </p>
         </div>
-      </section>
-    </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {canWrite && !editing ? (
+            <Button size="sm" onClick={() => setEditing(true)}>
+              Lengkapi berkas
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Tutup
+          </Button>
+        </div>
+      </DialogHeader>
+      <DialogBody>
+        {editing ? (
+          <form
+            className="space-y-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save.mutate();
+            }}
+          >
+            <MemberFormFields form={form} setForm={setForm} branches={branches} lockNik />
+            <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end gap-2 border-t border-line/70 bg-white/95 px-5 py-3 backdrop-blur-sm">
+              <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+                Batal
+              </Button>
+              <Button type="submit" disabled={save.isPending}>
+                Simpan berkas
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <MemberReadout member={member} />
+        )}
+      </DialogBody>
+    </Dialog>
   );
 }
 
@@ -269,7 +267,10 @@ function MemberReadout({ member: m }: { member: MemberRow }) {
         <Line label="Kantor" value={[m.branch?.name, m.unit?.name].filter(Boolean).join(" · ") || "—"} />
         <Line label="Bergabung" value={m.joinedOn ? new Date(m.joinedOn).toLocaleDateString("id-ID") : "—"} />
         <Line label="SLIK" value={m.slikConsentAt ? "Ada izin" : "Belum ada izin"} />
-        <Line label="Rekening simpanan" value={`${m.savingAccounts.length} produk`} />
+        <Line label="Rekening simpanan" value={m.savingAccounts.length ? `${m.savingAccounts.length} rekening` : "Belum ada"} />
+        {m.savingAccounts.map((a) => (
+          <Line key={a.id} label={a.accountNo} value={`${a.product.name} · ${idr(Number(a.balance))}`} />
+        ))}
         <Line label="Pinjaman" value={`${m.loans.length} rekening`} />
         {m.notes ? <p className="mt-2 text-sm leading-6">{m.notes}</p> : null}
       </ReadBlock>

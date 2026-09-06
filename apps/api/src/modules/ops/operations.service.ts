@@ -30,6 +30,7 @@ import {
   loanStatusFromDecision,
   type LoanDecisionKind,
 } from "./loan-decision";
+import { formatSavingAccountNo, withSavingRunningBalance } from "./saving-ledger";
 import {
   formatMemberAddress,
   memberProfileError,
@@ -222,7 +223,7 @@ export class OperationsService {
       where: { tenantId },
       orderBy: { createdAt: "desc" },
       include: {
-        savingAccounts: { include: { product: true } },
+        savingAccounts: { include: { product: true }, orderBy: { accountNo: "asc" } },
         loans: true,
         branch: { select: { id: true, code: true, name: true } },
         unit: { select: { id: true, code: true, name: true, branchId: true } },
@@ -285,15 +286,21 @@ export class OperationsService {
     });
     const products = await this.prisma.db.savingProduct.findMany({ where: { tenantId, status: "ACTIVE", openOnJoin: true } });
     if (products.length) {
+      const used = await this.prisma.db.savingAccount.count({ where: { tenantId } });
       await this.prisma.db.savingAccount.createMany({
-        data: products.map((p) => ({ tenantId, memberId: member.id, productId: p.id })),
+        data: products.map((p, index) => ({
+          tenantId,
+          memberId: member.id,
+          productId: p.id,
+          accountNo: formatSavingAccountNo(used + index + 1),
+        })),
       });
     }
     await this.audit.record({ action: "membership.member.registered", resource: "member", resourceId: member.id, tenantId, actorId });
     return this.prisma.db.member.findUnique({
       where: { id: member.id },
       include: {
-        savingAccounts: { include: { product: true } },
+        savingAccounts: { include: { product: true }, orderBy: { accountNo: "asc" } },
         loans: true,
         branch: { select: { id: true, code: true, name: true } },
         unit: { select: { id: true, code: true, name: true, branchId: true } },
@@ -319,7 +326,7 @@ export class OperationsService {
         unitId: office.unitId,
       },
       include: {
-        savingAccounts: { include: { product: true } },
+        savingAccounts: { include: { product: true }, orderBy: { accountNo: "asc" } },
         loans: true,
         branch: { select: { id: true, code: true, name: true } },
         unit: { select: { id: true, code: true, name: true, branchId: true } },
@@ -418,10 +425,90 @@ export class OperationsService {
   private async openSavingAccounts(tenantId: string, productId: string) {
     const members = await this.prisma.db.member.findMany({ where: { tenantId, status: "ACTIVE" }, select: { id: true } });
     if (!members.length) return;
-    await this.prisma.db.savingAccount.createMany({
-      data: members.map((m) => ({ tenantId, memberId: m.id, productId })),
-      skipDuplicates: true,
+    const existing = await this.prisma.db.savingAccount.findMany({
+      where: { tenantId, productId },
+      select: { memberId: true },
     });
+    const have = new Set(existing.map((row) => row.memberId));
+    const missing = members.filter((m) => !have.has(m.id));
+    if (!missing.length) return;
+    const used = await this.prisma.db.savingAccount.count({ where: { tenantId } });
+    await this.prisma.db.savingAccount.createMany({
+      data: missing.map((m, index) => ({
+        tenantId,
+        memberId: m.id,
+        productId,
+        accountNo: formatSavingAccountNo(used + index + 1),
+      })),
+    });
+  }
+
+  listSavingAccounts(tenantId: string) {
+    return this.prisma.db.savingAccount.findMany({
+      where: { tenantId },
+      orderBy: { accountNo: "asc" },
+      include: {
+        member: { select: { id: true, memberNo: true, name: true } },
+        product: true,
+        _count: { select: { txns: true } },
+      },
+    });
+  }
+
+  async getSavingAccount(tenantId: string, idOrNo: string) {
+    const account = await this.prisma.db.savingAccount.findFirst({
+      where: { tenantId, OR: [{ id: idOrNo }, { accountNo: idOrNo }] },
+      include: {
+        member: { select: { id: true, memberNo: true, name: true } },
+        product: true,
+      },
+    });
+    if (!account) throw new NotFoundException({ message: "Rekening simpanan tidak ditemukan" });
+    const txns = await this.prisma.db.savingTxn.findMany({
+      where: { tenantId, accountId: account.id },
+      orderBy: [{ occurredOn: "asc" }, { createdAt: "asc" }],
+    });
+    const journalIds = txns.map((row) => row.journalId).filter((id): id is string => Boolean(id));
+    const journals = journalIds.length
+      ? await this.prisma.db.journalEntry.findMany({
+          where: { tenantId, id: { in: journalIds } },
+          select: { id: true, number: true, memo: true, status: true },
+        })
+      : [];
+    const journalById = new Map(journals.map((row) => [row.id, row]));
+    const chronological = withSavingRunningBalance(
+      txns.map((row) => {
+        const journal = row.journalId ? journalById.get(row.journalId) : undefined;
+        return {
+          id: row.id,
+          type: row.type,
+          amount: n(row.amount),
+          occurredOn: row.occurredOn,
+          createdAt: row.createdAt,
+          journalId: row.journalId,
+          journalNo: journal?.number ?? null,
+          memo: journal?.memo ?? null,
+        };
+      }),
+    );
+    const ledger = chronological.slice().reverse();
+    const totalSetor = txns.filter((row) => row.type === "SETOR").reduce((sum, row) => sum + n(row.amount), 0);
+    const totalTarik = txns.filter((row) => row.type === "TARIK").reduce((sum, row) => sum + n(row.amount), 0);
+    return {
+      id: account.id,
+      accountNo: account.accountNo,
+      balance: n(account.balance),
+      status: account.status,
+      openedOn: account.createdAt,
+      member: account.member,
+      product: account.product,
+      summary: {
+        txnCount: txns.length,
+        totalSetor,
+        totalTarik,
+      },
+      ledger,
+    };
   }
 
   async mutateSaving(
@@ -498,7 +585,7 @@ export class OperationsService {
           include: {
             branch: { select: { id: true, code: true, name: true } },
             unit: { select: { id: true, code: true, name: true } },
-            savingAccounts: { include: { product: true } },
+            savingAccounts: { include: { product: true }, orderBy: { accountNo: "asc" } },
             loans: { orderBy: { createdAt: "desc" }, include: { product: { select: { name: true, code: true } } } },
           },
         },
@@ -511,6 +598,7 @@ export class OperationsService {
     const others = loan.member.loans.filter((row) => row.id !== loan.id);
     const savings = loan.member.savingAccounts.map((account) => ({
       id: account.id,
+      accountNo: account.accountNo,
       kind: account.product.kind,
       name: account.product.name,
       balance: n(account.balance),

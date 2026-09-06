@@ -1,12 +1,5 @@
-import type {
-  ButtonHTMLAttributes,
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TdHTMLAttributes,
-  TextareaHTMLAttributes,
-  ThHTMLAttributes,
-} from "react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TdHTMLAttributes, type TextareaHTMLAttributes, type ThHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
 import { formatRupiahInput, rupiahDigits } from "../lib/money";
 
 export function cx(...parts: Array<string | false | null | undefined>) {
@@ -42,6 +35,66 @@ export function Card({ children, className }: { children: ReactNode; className?:
       {children}
     </section>
   );
+}
+
+export function Dialog({
+  children,
+  onClose,
+  className,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  className?: string;
+}) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onCloseRef.current();
+    }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-leaf-deep/45 p-3 backdrop-blur-sm sm:p-6"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        className={cx(
+          "relative flex max-h-[calc(100dvh-1.5rem)] w-full flex-col overflow-hidden rounded-2.5xl border border-line/80 bg-white shadow-pop sm:max-h-[calc(100dvh-3rem)]",
+          className,
+        )}
+      >
+        {children}
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+export function DialogHeader({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <header className={cx("flex shrink-0 items-start justify-between gap-3 border-b border-line/70 px-5 py-4", className)}>
+      {children}
+    </header>
+  );
+}
+
+export function DialogBody({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cx("min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5", className)}>{children}</div>;
 }
 
 export function Button({

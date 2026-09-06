@@ -98,6 +98,18 @@ export class OperationsController {
     return this.ops.provisionMaster(scoped).then(() => ({ ok: true }));
   }
 
+  @Get("savings/accounts")
+  @RequirePermissions("savings:view")
+  savingAccounts(@CurrentUser() user: AuthUser, @Query("tenantId") tenantId?: string) {
+    return this.ops.listSavingAccounts(scopeTenant(user, tenantId));
+  }
+
+  @Get("savings/accounts/:id")
+  @RequirePermissions("savings:view")
+  savingAccount(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("tenantId") tenantId?: string) {
+    return this.ops.getSavingAccount(scopeTenant(user, tenantId), id);
+  }
+
   @Post("savings/mutate")
   @RequirePermissions("savings:post")
   mutate(@CurrentUser() user: AuthUser, @Query("tenantId") tenantId: string | undefined, @Body() body: { accountId: string; type: "SETOR" | "TARIK"; amount: number; occurredOn?: string; tenantId?: string }) {

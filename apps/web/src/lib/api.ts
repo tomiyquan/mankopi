@@ -176,6 +176,8 @@ export const ops = {
     request(`/api/setup/opening-capital${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
   mutateSaving: (body: { accountId: string; type: "SETOR" | "TARIK"; amount: number }, tenantId?: string) =>
     request(`/api/savings/mutate${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
+  savingAccounts: (tenantId?: string) => request<SavingAccountRow[]>(`/api/savings/accounts${q(tenantId)}`),
+  savingAccount: (id: string, tenantId?: string) => request<SavingAccountLedger>(`/api/savings/accounts/${id}${q(tenantId)}`),
   loans: (tenantId?: string) => request<LoanRow[]>(`/api/loans${q(tenantId)}`),
   loanReview: (id: string, tenantId?: string) => request<LoanReview>(`/api/loans/${id}/review${q(tenantId)}`),
   loanProducts: (tenantId?: string) => request<LoanProductRow[]>(`/api/loans/products${q(tenantId)}`),
@@ -316,7 +318,7 @@ export type MemberRow = {
   unitId?: string | null;
   branch?: { id: string; code: string; name: string } | null;
   unit?: { id: string; code: string; name: string; branchId: string } | null;
-  savingAccounts: Array<{ id: string; balance: string | number; product: SavingProductRow }>;
+  savingAccounts: Array<{ id: string; accountNo: string; balance: string | number; product: SavingProductRow }>;
   loans: Array<{ id: string; loanNo: string; status: string }>;
 };
 
@@ -351,6 +353,41 @@ export type SavingProductRow = {
   status: string;
   hasMovements?: boolean;
   _count?: { accounts: number };
+};
+
+export type SavingAccountRow = {
+  id: string;
+  accountNo: string;
+  balance: string | number;
+  status: string;
+  createdAt: string;
+  member: { id: string; memberNo: string; name: string };
+  product: SavingProductRow;
+  _count: { txns: number };
+};
+
+export type SavingLedgerRow = {
+  id: string;
+  type: "SETOR" | "TARIK" | string;
+  amount: number;
+  occurredOn: string;
+  createdAt: string;
+  journalId: string | null;
+  journalNo: string | null;
+  memo: string | null;
+  balanceAfter: number;
+};
+
+export type SavingAccountLedger = {
+  id: string;
+  accountNo: string;
+  balance: number;
+  status: string;
+  openedOn: string;
+  member: { id: string; memberNo: string; name: string };
+  product: SavingProductRow;
+  summary: { txnCount: number; totalSetor: number; totalTarik: number };
+  ledger: SavingLedgerRow[];
 };
 export type LoanProductRow = {
   id: string;
@@ -438,7 +475,7 @@ export type LoanReview = {
     branch?: { id: string; code: string; name: string } | null;
     unit?: { id: string; code: string; name: string } | null;
   };
-  savings: Array<{ id: string; kind: string; name: string; balance: number; minAmount: number }>;
+  savings: Array<{ id: string; accountNo?: string; kind: string; name: string; balance: number; minAmount: number }>;
   savingsTotal: number;
   history: {
     loanCount: number;

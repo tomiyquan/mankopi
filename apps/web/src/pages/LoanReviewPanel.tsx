@@ -1,10 +1,10 @@
-import { FormEvent, useEffect, useState, type ReactNode } from "react";
+import { FormEvent, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ops, type LoanDecisionKind, type LoanRow } from "../lib/api";
 import { confirmAction, noticeHandlers } from "../lib/notify";
 import { idr } from "../lib/money";
 import { EDUCATION_LABEL, EMPLOYMENT_LABEL, GENDER_LABEL, HOUSE_LABEL, labeled, MARITAL_LABEL, RELIGION_LABEL } from "../lib/member";
-import { Button, Field, StatusBadge, TextArea } from "../ui/kit";
+import { Button, Dialog, DialogBody, DialogHeader, Field, StatusBadge, TextArea } from "../ui/kit";
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: "Pengajuan",
@@ -61,14 +61,6 @@ export function LoanReviewPanel({
   const [conditions, setConditions] = useState("");
   const [cleared, setCleared] = useState(false);
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const decide = useMutation({
     mutationFn: () =>
       ops.decideLoan(
@@ -98,28 +90,28 @@ export function LoanReviewPanel({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-leaf-deep/40 p-3 backdrop-blur-sm sm:p-6">
-      <section className="relative my-auto w-full max-w-3xl rounded-2.5xl border border-line/80 bg-white shadow-pop">
-        <header className="flex items-start justify-between gap-3 border-b border-line/70 px-5 py-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-leaf-dark">Tinjauan analis kredit</p>
-            <h2 className="mt-1 text-xl font-extrabold tracking-tight">
-              {data?.loan.loanNo ?? "Memuat…"} · {data?.member.name ?? ""}
-            </h2>
-            <p className="mt-1 text-sm text-mute">Dasar putusan dari data anggota, simpanan, riwayat kredit, dan perkiraan angsuran.</p>
-          </div>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Tutup
-          </Button>
-        </header>
+    <Dialog onClose={onClose} className="max-w-3xl">
+      <DialogHeader>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-leaf-dark">Tinjauan analis kredit</p>
+          <h2 className="mt-1 text-xl font-extrabold tracking-tight">
+            {data?.loan.loanNo ?? "Memuat…"} · {data?.member.name ?? ""}
+          </h2>
+          <p className="mt-1 text-sm text-mute">Dasar putusan dari data anggota, simpanan, riwayat kredit, dan perkiraan angsuran.</p>
+        </div>
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={onClose}>
+          Tutup
+        </Button>
+      </DialogHeader>
 
+      <DialogBody>
         {review.isError ? (
-          <p className="px-5 py-8 text-sm text-clay">{review.error instanceof Error ? review.error.message : "Gagal memuat tinjauan"}</p>
+          <p className="py-3 text-sm text-clay">{review.error instanceof Error ? review.error.message : "Gagal memuat tinjauan"}</p>
         ) : null}
-        {!data && review.isLoading ? <p className="px-5 py-8 text-sm text-mute">Menyusun berkas analis…</p> : null}
+        {!data && review.isLoading ? <p className="py-3 text-sm text-mute">Menyusun berkas analis…</p> : null}
 
         {data ? (
-          <div className="space-y-5 px-5 py-5">
+          <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge status={loanBadge(data.loan)} />
               <span className="text-sm font-semibold">{idr(Number(data.loan.principal))}</span>
@@ -170,7 +162,7 @@ export function LoanReviewPanel({
             <CardBlock title="Simpanan">
               {data.savings.length === 0 ? <p className="text-sm text-mute">Belum ada rekening simpanan</p> : null}
               {data.savings.map((s) => (
-                <Row key={s.id} label={s.name} value={idr(s.balance)} />
+                <Row key={s.id} label={s.accountNo ? `${s.accountNo} · ${s.name}` : s.name} value={idr(s.balance)} />
               ))}
               <Row label="Total simpanan" value={idr(data.savingsTotal)} />
             </CardBlock>
@@ -339,8 +331,8 @@ export function LoanReviewPanel({
             ) : null}
           </div>
         ) : null}
-      </section>
-    </div>
+      </DialogBody>
+    </Dialog>
   );
 }
 

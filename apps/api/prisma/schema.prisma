@@ -419,12 +419,14 @@ model SavingAccount {
   member    Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
   productId String
   product   SavingProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+  accountNo String
   balance   Decimal       @default(0) @db.Decimal(18, 2)
   status    String        @default("ACTIVE")
   createdAt DateTime      @default(now())
   txns      SavingTxn[]
 
   @@unique([memberId, productId])
+  @@unique([tenantId, accountNo])
   @@index([tenantId])
   @@map("saving_accounts")
 }
@@ -441,6 +443,7 @@ model SavingTxn {
   createdAt DateTime      @default(now())
 
   @@index([tenantId, occurredOn])
+  @@index([accountId, occurredOn])
   @@map("saving_txns")
 }
 
