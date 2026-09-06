@@ -1,0 +1,700 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum DataScope {
+  PLATFORM
+  TENANT
+  BRANCH
+  UNIT
+  OWN_PORTFOLIO
+}
+
+enum ActorLayer {
+  PLATFORM
+  TENANT
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+}
+
+enum JournalStatus {
+  POSTED
+  REVERSED
+}
+
+model Tenant {
+  id        String       @id @default(cuid())
+  slug      String       @unique
+  name      String
+  legalName String?
+  status    TenantStatus @default(TRIAL)
+  plan      String       @default("standard")
+  settings  Json         @default("{}")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  branches    Branch[]
+  units       Unit[]
+  users       User[]
+  roles       Role[]
+  memberships Membership[]
+  auditLogs   AuditLog[]
+  accounts    Account[]
+  periods     AccountingPeriod[]
+  journals    JournalEntry[]
+  members     Member[]
+  savingProducts SavingProduct[]
+  savingAccounts SavingAccount[]
+  loanProducts LoanProduct[]
+  loans       Loan[]
+  holidays    TenantHoliday[]
+  receipts    CollectionReceipt[]
+  employees   Employee[]
+  payrollRuns PayrollRun[]
+  payrollItems PayrollItem[]
+  expenseBudgets ExpenseBudgetPolicy[]
+  ckpnRates      CkpnRate[]
+  shuShares      ShuSharePolicy[]
+  yearCloses     YearClose[]
+
+  @@map("tenants")
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  address   String?
+  phone     String?
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  units       Unit[]
+  memberships Membership[]
+  members     Member[]
+  employees   Employee[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("branches")
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  members     Member[]
+  employees   Employee[]
+
+  @@unique([tenantId, branchId, code])
+  @@index([tenantId])
+  @@map("units")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  tenantId     String?
+  tenant       Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String     @unique
+  passwordHash String
+  name         String
+  phone        String?
+  status       UserStatus @default(ACTIVE)
+  mfaEnabled   Boolean    @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  memberships   Membership[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  receipts      CollectionReceipt[]
+  loanDecisions Loan[]             @relation("LoanDecidedBy")
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  tenantId    String?
+  tenant      Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  description String?
+  isSystem    Boolean    @default(false)
+  layer       ActorLayer
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  permissions RolePermission[]
+  memberships Membership[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  key         String @unique
+  resource    String
+  action      String
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Membership {
+  id       String    @id @default(cuid())
+  userId   String
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId   String
+  role     Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  tenantId String?
+  tenant   Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId String?
+  branch   Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  unitId   String?
+  unit     Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  scope    DataScope
+
+  @@index([userId])
+  @@index([tenantId])
+  @@map("memberships")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ip        String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  resource   String
+  resourceId String?
+  metadata   Json     @default("{}")
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+model Account {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code          String
+  name          String
+  classCode     String
+  normalBalance String
+  isCash        Boolean  @default(false)
+  report        String
+  cashFlow      String?
+  ojkMap        String?
+  status        String   @default("ACTIVE")
+  isSystem      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lines         JournalLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("accounts")
+}
+
+model AccountingPeriod {
+  id        String       @id @default(cuid())
+  tenantId  String
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  year      Int
+  month     Int
+  startsOn  DateTime     @db.Date
+  endsOn    DateTime     @db.Date
+  status    PeriodStatus @default(OPEN)
+  closedAt  DateTime?
+  closedBy  String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  journals  JournalEntry[]
+
+  @@unique([tenantId, year, month])
+  @@index([tenantId])
+  @@map("accounting_periods")
+}
+
+model JournalEntry {
+  id          String        @id @default(cuid())
+  tenantId    String
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  periodId    String
+  period      AccountingPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  number      String
+  postedOn    DateTime      @db.Date
+  memo        String?
+  sourceType  String
+  sourceId    String?
+  status      JournalStatus @default(POSTED)
+  reversesId  String?
+  reverses    JournalEntry?  @relation("JournalReversal", fields: [reversesId], references: [id], onDelete: SetNull)
+  reversedBy  JournalEntry[] @relation("JournalReversal")
+  debitTotal  Decimal       @db.Decimal(18, 2)
+  creditTotal Decimal       @db.Decimal(18, 2)
+  createdBy   String?
+  createdAt   DateTime      @default(now())
+  lines       JournalLine[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, postedOn])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id        String        @id @default(cuid())
+  tenantId  String
+  journalId String
+  journal   JournalEntry  @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  lineNo    Int
+  debit     Decimal       @db.Decimal(18, 2)
+  credit    Decimal       @db.Decimal(18, 2)
+  memo      String?
+
+  @@index([tenantId, accountId])
+  @@map("journal_lines")
+}
+
+model Member {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId     String?
+  branch       Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  unitId       String?
+  unit         Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  memberNo     String
+  nik          String
+  name         String
+  gender       String?
+  religion     String?
+  maritalStatus String?
+  education    String?
+  phone        String?
+  phoneAlt     String?
+  email        String?
+  address      String?
+  rtRw         String?
+  village      String?
+  district     String?
+  city         String?
+  province     String?
+  postalCode   String?
+  placeOfBirth String?
+  dateOfBirth  DateTime? @db.Date
+  motherName   String?
+  npwp         String?
+  familyCardNo String?
+  spouseName   String?
+  spouseNik    String?
+  dependents   Int?
+  heirName     String?
+  heirRelation String?
+  heirPhone    String?
+  emergencyName String?
+  emergencyPhone String?
+  emergencyRelation String?
+  occupation   String?
+  employmentType String?
+  employerName String?
+  workAddress  String?
+  monthlyIncome Decimal? @db.Decimal(18, 2)
+  otherIncome  Decimal? @db.Decimal(18, 2)
+  houseStatus  String?
+  yearsAtAddress Int?
+  joinedOn     DateTime? @db.Date
+  memberType   String    @default("REGULAR")
+  notes        String?
+  slikConsentAt DateTime?
+  status       String    @default("ACTIVE")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  savingAccounts SavingAccount[]
+  loans        Loan[]
+  receipts     CollectionReceipt[]
+
+  @@unique([tenantId, memberNo])
+  @@unique([tenantId, nik])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([unitId])
+  @@map("members")
+}
+
+model SavingProduct {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code         String
+  name         String
+  kind         String
+  accountCode  String
+  minAmount    Decimal  @default(0) @db.Decimal(18, 2)
+  withdrawable Boolean  @default(false)
+  openOnJoin   Boolean  @default(true)
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  accounts     SavingAccount[]
+
+  @@unique([tenantId, code])
+  @@map("saving_products")
+}
+
+model SavingAccount {
+  id        String        @id @default(cuid())
+  tenantId  String
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberId  String
+  member    Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  productId String
+  product   SavingProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+  balance   Decimal       @default(0) @db.Decimal(18, 2)
+  status    String        @default("ACTIVE")
+  createdAt DateTime      @default(now())
+  txns      SavingTxn[]
+
+  @@unique([memberId, productId])
+  @@index([tenantId])
+  @@map("saving_accounts")
+}
+
+model SavingTxn {
+  id        String        @id @default(cuid())
+  tenantId  String
+  accountId String
+  account   SavingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type      String
+  amount    Decimal       @db.Decimal(18, 2)
+  journalId String?
+  occurredOn DateTime     @db.Date
+  createdAt DateTime      @default(now())
+
+  @@index([tenantId, occurredOn])
+  @@map("saving_txns")
+}
+
+model LoanProduct {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code         String
+  name         String
+  method       String
+  frequency    String
+  rateBasis    String   @default("ANNUAL")
+  annualRate   Decimal  @db.Decimal(8, 4)
+  periods      Int
+  graceDays    Int      @default(0)
+  penaltyKind  String   @default("NONE")
+  penaltyValue Decimal  @default(0) @db.Decimal(18, 4)
+  minPrincipal Decimal  @default(0) @db.Decimal(18, 2)
+  maxPrincipal Decimal? @db.Decimal(18, 2)
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  loans        Loan[]
+
+  @@unique([tenantId, code])
+  @@map("loan_products")
+}
+
+model Loan {
+  id                   String      @id @default(cuid())
+  tenantId             String
+  tenant               Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberId             String
+  member               Member      @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  productId            String
+  product              LoanProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+  loanNo               String
+  principal            Decimal     @db.Decimal(18, 2)
+  outstandingPrincipal Decimal     @db.Decimal(18, 2)
+  annualRate           Decimal     @db.Decimal(8, 4)
+  rateBasis            String      @default("ANNUAL")
+  method               String
+  frequency            String
+  periods              Int
+  status               String      @default("DRAFT")
+  collectability       Int         @default(1)
+  decisionKind         String?
+  decisionNote         String?
+  decisionConditions   String?
+  decidedAt            DateTime?
+  decidedById          String?
+  decidedBy            User?       @relation("LoanDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  conditionsClearedAt  DateTime?
+  conditionsClearedById String?
+  disbursedOn          DateTime?   @db.Date
+  journalId            String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  schedule             LoanScheduleItem[]
+  receipts             CollectionReceipt[]
+
+  @@unique([tenantId, loanNo])
+  @@index([tenantId])
+  @@index([decidedById])
+  @@map("loans")
+}
+
+model LoanScheduleItem {
+  id            String   @id @default(cuid())
+  tenantId      String
+  loanId        String
+  loan          Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  sequence      Int
+  dueDate       DateTime @db.Date
+  principalDue  Decimal  @db.Decimal(18, 2)
+  interestDue   Decimal  @db.Decimal(18, 2)
+  penaltyDue    Decimal  @default(0) @db.Decimal(18, 2)
+  principalPaid Decimal  @default(0) @db.Decimal(18, 2)
+  interestPaid  Decimal  @default(0) @db.Decimal(18, 2)
+  penaltyPaid   Decimal  @default(0) @db.Decimal(18, 2)
+  status        String   @default("DUE")
+
+  @@unique([loanId, sequence])
+  @@index([tenantId, dueDate])
+  @@map("loan_schedule_items")
+}
+
+model TenantHoliday {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  name      String
+  source    String
+  enabled   Boolean  @default(true)
+
+  @@unique([tenantId, date, name])
+  @@map("tenant_holidays")
+}
+
+model CollectionReceipt {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  loanId          String
+  loan            Loan     @relation(fields: [loanId], references: [id], onDelete: Restrict)
+  memberId        String
+  member          Member   @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  collectorId     String?
+  collector       User?    @relation(fields: [collectorId], references: [id], onDelete: SetNull)
+  receiptNo       String
+  clientReceiptId String
+  amount          Decimal  @db.Decimal(18, 2)
+  journalId       String?
+  scheduleItemId  String?
+  status          String   @default("POSTED")
+  voidedAt        DateTime?
+  voidJournalId   String?
+  paidOn          DateTime @db.Date
+  allocation      Json     @default("{}")
+  createdAt       DateTime @default(now())
+
+  @@unique([tenantId, clientReceiptId])
+  @@unique([tenantId, receiptNo])
+  @@index([tenantId, paidOn])
+  @@map("collection_receipts")
+}
+
+model Employee {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId    String?
+  branch      Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  unitId      String?
+  unit        Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  employeeNo  String
+  name        String
+  nik         String?
+  phone       String?
+  position    String?
+  baseSalary  Decimal   @db.Decimal(18, 2)
+  allowance   Decimal   @default(0) @db.Decimal(18, 2)
+  status      String    @default("ACTIVE")
+  joinedOn    DateTime? @db.Date
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  payrollItems PayrollItem[]
+
+  @@unique([tenantId, employeeNo])
+  @@index([tenantId])
+  @@index([branchId])
+  @@map("employees")
+}
+
+model PayrollRun {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  year            Int
+  month           Int
+  status          String   @default("DRAFT")
+  paidOn          DateTime @db.Date
+  cashAccountCode String   @default("1101")
+  memo            String?
+  journalId       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  items           PayrollItem[]
+
+  @@index([tenantId, year, month])
+  @@map("payroll_runs")
+}
+
+model PayrollItem {
+  id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  runId        String
+  run          PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employeeName String
+  position     String?
+  baseSalary   Decimal    @db.Decimal(18, 2)
+  allowance    Decimal    @default(0) @db.Decimal(18, 2)
+  deduction    Decimal    @default(0) @db.Decimal(18, 2)
+  net          Decimal    @db.Decimal(18, 2)
+
+  @@unique([runId, employeeId])
+  @@index([tenantId])
+  @@map("payroll_items")
+}
+
+model ExpenseBudgetPolicy {
+  id          String  @id @default(cuid())
+  tenantId    String
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  accountCode String
+  name        String
+  percent     Decimal @db.Decimal(7, 2)
+  enabled     Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, accountCode])
+  @@index([tenantId])
+  @@map("expense_budget_policies")
+}
+
+model CkpnRate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  grade     Int
+  percent   Decimal  @db.Decimal(7, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, grade])
+  @@index([tenantId])
+  @@map("ckpn_rates")
+}
+
+model ShuSharePolicy {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  accountCode String
+  name        String
+  percent     Decimal  @db.Decimal(7, 2)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, accountCode])
+  @@index([tenantId])
+  @@map("shu_share_policies")
+}
+
+model YearClose {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  year               Int
+  phuNet             Decimal   @db.Decimal(18, 2)
+  closeJournalId     String?
+  allocateJournalId  String?
+  closedAt           DateTime  @default(now())
+  allocatedAt        DateTime?
+  closedBy           String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([tenantId, year])
+  @@index([tenantId])
+  @@map("year_closes")
+}

@@ -1,0 +1,137 @@
+name: mankopi
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mankopi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mankopi}
+      POSTGRES_DB: ${POSTGRES_DB:-mankopi}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mankopi} -d ${POSTGRES_DB:-mankopi}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mankopi_internal
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks:
+      - mankopi_internal
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-mankopi}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-mankopi-secret}
+    volumes:
+      - minio_data:/data
+    networks:
+      - mankopi_internal
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    image: mankopi/api:${IMAGE_TAG:-local}
+    pull_policy: build
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mankopi}:${POSTGRES_PASSWORD:-mankopi}@postgres:5432/${POSTGRES_DB:-mankopi}?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-mankopi}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-mankopi}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-mankopi-secret}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      API_URL: ${API_URL:-http://localhost:8080/api}
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-localhost}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mankopi_internal
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    image: mankopi/api:${IMAGE_TAG:-local}
+    pull_policy: build
+    command: ["node", "apps/api/dist/worker.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mankopi}:${POSTGRES_PASSWORD:-mankopi}@postgres:5432/${POSTGRES_DB:-mankopi}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - mankopi_internal
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    image: mankopi/web:${IMAGE_TAG:-local}
+    pull_policy: build
+    networks:
+      - mankopi_internal
+
+  proxy:
+    image: caddy:2.9-alpine
+    volumes:
+      - ./../docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    networks:
+      - mankopi_internal
+
+  migrate:
+    image: mankopi/api:${IMAGE_TAG:-local}
+    pull_policy: build
+    profiles: ["migrate"]
+    working_dir: /app/apps/api
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mankopi}:${POSTGRES_PASSWORD:-mankopi}@postgres:5432/${POSTGRES_DB:-mankopi}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mankopi_internal
+
+networks:
+  mankopi_internal:
+    name: mankopi_internal
+
+volumes:
+  pgdata:
+  redisdata:
+  minio_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,48 @@
+services:
+  postgres:
+    ports:
+      - "55432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  init:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    image: mankopi/api:${IMAGE_TAG:-local}
+    pull_policy: build
+    working_dir: /app/apps/api
+    command: ["sh", "-c", "npx prisma migrate deploy && npx tsx prisma/seed.ts"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mankopi}:${POSTGRES_PASSWORD:-mankopi}@postgres:5432/${POSTGRES_DB:-mankopi}?schema=public
+      SEED_DEMO_TENANT: ${SEED_DEMO_TENANT:-true}
+      PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-admin@mankopi.local}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-ChangeMeNow!23}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - mankopi_internal
+
+  api:
+    environment:
+      NODE_ENV: development
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  web:
+    ports:
+      - "8081:80"
+
+  proxy:
+    ports:
+      - "8080:80"

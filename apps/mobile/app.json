@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Mankopi Kolektor",
+    "slug": "mankopi-collector",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "mankopi",
+    "userInterfaceStyle": "light",
+    "ios": { "supportsTablet": false, "bundleIdentifier": "id.mankopi.collector" },
+    "android": { "package": "id.mankopi.collector" },
+    "extra": {
+      "apiUrl": "http://localhost:8080/api"
+    }
+  }
+}

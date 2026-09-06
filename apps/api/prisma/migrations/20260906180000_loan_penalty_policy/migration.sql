@@ -1,0 +1,3 @@
+ALTER TABLE "loan_products" ADD COLUMN "graceDays" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "loan_products" ADD COLUMN "penaltyKind" TEXT NOT NULL DEFAULT 'NONE';
+ALTER TABLE "loan_products" ADD COLUMN "penaltyValue" DECIMAL(18,4) NOT NULL DEFAULT 0;

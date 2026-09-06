@@ -1,0 +1,71 @@
+services:
+  postgres:
+    restart: unless-stopped
+    # Do not publish 5432 on a public VPS.
+
+  redis:
+    restart: unless-stopped
+
+  minio:
+    restart: unless-stopped
+
+  api:
+    image: mankopi/api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    environment:
+      NODE_ENV: production
+      APP_URL: https://${DOMAIN}
+      API_URL: https://${DOMAIN}/api
+
+  worker:
+    image: mankopi/api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+
+  web:
+    image: mankopi/web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+
+  proxy:
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./../docker/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-mankopi}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-mankopi}
+      PGDATABASE: ${POSTGRES_DB:-mankopi}
+    volumes:
+      - ../../backups:/backups
+      - ./../scripts/backup-db.sh:/backup-db.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          /backup-db.sh
+          sleep 86400
+        done
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mankopi_internal
