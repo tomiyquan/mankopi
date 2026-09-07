@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import { useMemo, useState } from "react";
-import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 
 const API = "http://localhost:8080/api";
 
@@ -15,6 +15,7 @@ type Card = {
 export default function App() {
   const [email, setEmail] = useState("ketua@sejahtera.local");
   const [password, setPassword] = useState("ChangeMeNow!23");
+  const [showPassword, setShowPassword] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [note, setNote] = useState("Masuk untuk unduh kartu tagih.");
@@ -91,13 +92,25 @@ export default function App() {
     return (
       <View style={styles.screen}>
         <StatusBar style="light" />
-        <Text style={styles.brand}>Mankopi</Text>
+        <Image source={require("./assets/logo.png")} style={styles.logo} accessibilityLabel="Mankopi" />
         <Text style={styles.sub}>Kolektor lapangan</Text>
         <View style={styles.card}>
+          <Text style={styles.heading}>Masuk</Text>
           <Text style={styles.label}>Email</Text>
-          <TextInput style={styles.input} autoCapitalize="none" value={email} onChangeText={setEmail} />
+          <TextInput style={styles.input} autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} />
           <Text style={styles.label}>Kata sandi</Text>
-          <TextInput style={styles.input} secureTextEntry value={password} onChangeText={setPassword} />
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              secureTextEntry={!showPassword}
+              autoComplete="password"
+              value={password}
+              onChangeText={setPassword}
+            />
+            <Pressable style={styles.eye} onPress={() => setShowPassword((v) => !v)} accessibilityLabel={showPassword ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"}>
+              <Text style={styles.eyeText}>{showPassword ? "Sembunyi" : "Lihat"}</Text>
+            </Pressable>
+          </View>
           <Pressable style={styles.button} onPress={login}>
             <Text style={styles.buttonText}>Masuk</Text>
           </Pressable>
@@ -110,6 +123,7 @@ export default function App() {
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 40 }}>
       <StatusBar style="light" />
+      <Image source={require("./assets/logo.png")} style={styles.logoSmall} accessibilityLabel="Mankopi" />
       <Text style={styles.brand}>Kartu tagih</Text>
       <Text style={styles.sub}>{note}</Text>
       {Object.values(
@@ -174,11 +188,18 @@ export default function App() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#0A1F16", padding: 20 },
-  brand: { color: "#C8F27A", fontSize: 32, fontWeight: "800", marginTop: 24 },
-  sub: { color: "#d7e4d6", marginBottom: 16 },
+  logo: { width: 132, height: 132, borderRadius: 20, marginTop: 24, backgroundColor: "#000" },
+  logoSmall: { width: 56, height: 56, borderRadius: 12, marginTop: 16, backgroundColor: "#000" },
+  brand: { color: "#C8F27A", fontSize: 28, fontWeight: "800", marginTop: 12 },
+  heading: { fontWeight: "800", fontSize: 22, color: "#12241C", marginBottom: 4 },
+  sub: { color: "#d7e4d6", marginTop: 10, marginBottom: 16 },
   card: { backgroundColor: "#F3F6F2", borderRadius: 20, padding: 16, marginBottom: 12 },
   label: { marginTop: 8, marginBottom: 4, color: "#12241C" },
   input: { backgroundColor: "#fff", borderRadius: 10, padding: 10, marginTop: 8 },
+  passwordRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  passwordInput: { flex: 1, marginTop: 8 },
+  eye: { marginTop: 8, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, backgroundColor: "#e8eee6" },
+  eyeText: { color: "#0B5C34", fontWeight: "700", fontSize: 12 },
   button: { marginTop: 12, backgroundColor: "#128A4E", borderRadius: 12, padding: 12, alignItems: "center", flex: 1 },
   buttonText: { color: "#fff", fontWeight: "700" },
   note: { marginTop: 12, color: "#5c564c", fontSize: 12 },

@@ -4,10 +4,22 @@
     "slug": "mankopi-collector",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/logo.png",
     "scheme": "mankopi",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A1F16"
+    },
     "ios": { "supportsTablet": false, "bundleIdentifier": "id.mankopi.collector" },
-    "android": { "package": "id.mankopi.collector" },
+    "android": {
+      "package": "id.mankopi.collector",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#000000"
+      }
+    },
     "extra": {
       "apiUrl": "http://localhost:8080/api"
     }

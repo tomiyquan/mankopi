@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { optionalStore } from "../../common/request-context";
 import { PrismaService } from "../../prisma/prisma.service";
+import { auditListWhere, parseAuditPage, parseAuditPageSize } from "./audit-query";
 
 @Injectable()
 export class AuditService {
@@ -30,12 +31,20 @@ export class AuditService {
     });
   }
 
-  list(tenantId?: string) {
-    return this.prisma.db.auditLog.findMany({
-      where: tenantId ? { tenantId } : undefined,
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { actor: { select: { id: true, name: true, email: true } } },
-    });
+  async list(input: { tenantId?: string; q?: string; page?: string; pageSize?: string }) {
+    const page = parseAuditPage(input.page);
+    const pageSize = parseAuditPageSize(input.pageSize);
+    const where = auditListWhere(input.tenantId, input.q);
+    const [items, total] = await Promise.all([
+      this.prisma.db.auditLog.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { actor: { select: { id: true, name: true, email: true } } },
+      }),
+      this.prisma.db.auditLog.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
   }
 }

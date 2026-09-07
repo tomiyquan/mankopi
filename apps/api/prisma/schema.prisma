@@ -378,6 +378,8 @@ model Member {
   notes        String?
   slikConsentAt DateTime?
   status       String    @default("ACTIVE")
+  leftOn       DateTime? @db.Date
+  exitReason   String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   savingAccounts SavingAccount[]
@@ -432,16 +434,21 @@ model SavingAccount {
 }
 
 model SavingTxn {
-  id        String        @id @default(cuid())
-  tenantId  String
-  accountId String
-  account   SavingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  type      String
-  amount    Decimal       @db.Decimal(18, 2)
-  journalId String?
-  occurredOn DateTime     @db.Date
-  createdAt DateTime      @default(now())
+  id               String        @id @default(cuid())
+  tenantId         String
+  accountId        String
+  account          SavingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  txnNo            String
+  type             String
+  amount           Decimal       @db.Decimal(18, 2)
+  method           String        @default("CASH")
+  note             String?
+  counterAccountId String?
+  journalId        String?
+  occurredOn       DateTime      @db.Date
+  createdAt        DateTime      @default(now())
 
+  @@unique([tenantId, txnNo])
   @@index([tenantId, occurredOn])
   @@index([accountId, occurredOn])
   @@map("saving_txns")

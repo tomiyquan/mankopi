@@ -100,3 +100,6 @@ export type MemberHouse = (typeof MEMBER_HOUSE)[number];
 
 export const MEMBER_TYPES = ["REGULAR", "EXTRAORDINARY"] as const;
 export type MemberType = (typeof MEMBER_TYPES)[number];
+
+export const MEMBER_STATUSES = ["ACTIVE", "LEFT"] as const;
+export type MemberStatus = (typeof MEMBER_STATUSES)[number];

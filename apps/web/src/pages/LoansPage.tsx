@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ops, type LoanRow } from "../lib/api";
@@ -6,7 +6,7 @@ import { noticeHandlers } from "../lib/notify";
 import { useAuth } from "../lib/auth";
 import { idr } from "../lib/money";
 import { useWorkspace } from "../lib/workspace";
-import { Button, Card, Field, MoneyInput, PageHeader, SelectInput, StatusBadge } from "../ui/kit";
+import { Button, Card, Dialog, DialogBody, DialogHeader, Field, MoneyInput, PageHeader, SelectInput, StatusBadge, Td, TextInput, Th } from "../ui/kit";
 import { TenantGate } from "../ui/TenantGate";
 import { LoanReviewPanel, loanBadge } from "./LoanReviewPanel";
 
@@ -32,7 +32,24 @@ export function LoansPage() {
   const canCreate = Boolean(user?.permissions.includes("loan:create"));
   const canDecide = Boolean(user?.permissions.includes("loan:approve"));
   const canCollect = Boolean(user?.permissions.includes("collection:create"));
-  const members = useQuery({ queryKey: ["members", tenantId], queryFn: () => ops.members(tenantId ?? undefined), enabled });
+  const [memberQ, setMemberQ] = useState("");
+  const [debouncedMemberQ, setDebouncedMemberQ] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedMemberQ(memberQ.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [memberQ]);
+  const members = useQuery({
+    queryKey: ["members", "picker", tenantId, debouncedMemberQ],
+    queryFn: () =>
+      ops.members({
+        tenantId: tenantId ?? undefined,
+        q: debouncedMemberQ || undefined,
+        status: "ACTIVE",
+        page: 1,
+        pageSize: 50,
+      }),
+    enabled,
+  });
   const products = useQuery({ queryKey: ["loan-products", tenantId], queryFn: () => ops.loanProducts(tenantId ?? undefined), enabled });
   const loans = useQuery({ queryKey: ["loans", tenantId], queryFn: () => ops.loans(tenantId ?? undefined), enabled });
   const [memberId, setMemberId] = useState("");
@@ -57,6 +74,9 @@ export function LoansPage() {
     create.mutate();
   }
 
+  const setupIncomplete =
+    products.isSuccess && (products.data?.filter((p) => p.status !== "INACTIVE").length ?? 0) === 0;
+
   return (
     <TenantGate>
       <PageHeader
@@ -64,9 +84,11 @@ export function LoansPage() {
         title="Pinjaman"
         description="Analis membuka berkas pengajuan dulu: riwayat anggota, simpanan, dan kelayakan. Putusan wajib disertai keterangan, termasuk jika disetujui dengan syarat."
         action={
-          <Link to="/setup" className="text-sm font-semibold text-leaf-dark hover:underline">
-            Data induk
-          </Link>
+          setupIncomplete ? (
+            <Link to="/setup" className="text-sm font-semibold text-leaf-dark hover:underline">
+              Data induk
+            </Link>
+          ) : undefined
         }
       />
       <ol className="grid gap-2 sm:grid-cols-3">
@@ -86,11 +108,19 @@ export function LoansPage() {
       {canCreate ? (
         <Card className="p-4">
           <p className="mb-3 text-sm font-semibold">Pengajuan baru</p>
-          <form onSubmit={onSubmit} className="grid gap-3 md:grid-cols-4 md:items-end">
+          <form onSubmit={onSubmit} className="grid gap-3 md:grid-cols-2 lg:grid-cols-5 lg:items-end">
+            <Field label="Cari anggota">
+              <TextInput
+                value={memberQ}
+                onChange={(e) => setMemberQ(e.target.value)}
+                placeholder="Nama, nomor, atau NIK"
+                aria-label="Cari anggota untuk pengajuan"
+              />
+            </Field>
             <Field label="Anggota">
               <SelectInput value={memberId} onChange={(e) => setMemberId(e.target.value)} required>
                 <option value="">Pilih</option>
-                {members.data?.map((m) => (
+                {(members.data?.items ?? []).map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.memberNo} · {m.name}
                   </option>
@@ -132,7 +162,7 @@ export function LoansPage() {
             key={l.id}
             loan={l}
             canCollect={canCollect}
-            onOpen={() => setReviewId(l.id)}
+            onOpenBerkas={() => setReviewId(l.id)}
           />
         ))}
       </div>
@@ -155,55 +185,143 @@ export function LoansPage() {
 function LoanCard({
   loan: l,
   canCollect,
-  onOpen,
+  onOpenBerkas,
 }: {
   loan: LoanRow;
   canCollect: boolean;
-  onOpen: () => void;
+  onOpenBerkas: () => void;
 }) {
+  const [showSchedule, setShowSchedule] = useState(false);
+  const paidCount = l.schedule.filter((s) => s.status === "PAID").length;
+  const nextDue = l.schedule.find((s) => s.status !== "PAID");
+  const nextAmount = nextDue ? Number(nextDue.principalDue) + Number(nextDue.interestDue) + Number(nextDue.penaltyDue ?? 0) : 0;
+  const canSetor = l.status === "DISBURSED" && canCollect && Number(l.outstandingPrincipal) > 0;
+
   return (
-    <Card className="p-5">
-      <button type="button" className="block w-full text-left" onClick={onOpen}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="font-mono text-sm text-leaf-dark">{l.loanNo}</p>
-            <p className="font-semibold">{l.member.name}</p>
-            <p className="text-sm text-mute">
-              {l.product.name} · Pokok {idr(Number(l.principal))}
-              {l.status === "DISBURSED" ? ` · outstanding ${idr(Number(l.outstandingPrincipal))}` : ""}
+    <Card className="p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-xs font-semibold text-leaf-dark">{l.loanNo}</p>
+          <p className="mt-0.5 truncate text-base font-extrabold tracking-tight">{l.member.name}</p>
+          <p className="mt-1 text-sm text-mute">
+            {l.product.name} · pokok {idr(Number(l.principal))}
+            {l.status === "DISBURSED" || l.status === "CLOSED" ? ` · sisa ${idr(Number(l.outstandingPrincipal))}` : ""}
+          </p>
+          {l.schedule.length ? (
+            <p className="mt-1 text-xs text-mute">
+              {paidCount}/{l.schedule.length} angsuran lunas
+              {nextDue
+                ? ` · berikutnya ${new Date(nextDue.dueDate).toLocaleDateString("id-ID")} · ${idr(nextAmount)}`
+                : ""}
             </p>
-            {l.decisionNote ? <p className="mt-2 line-clamp-2 text-sm text-mute">{l.decisionNote}</p> : null}
-            {l.decisionConditions ? (
-              <p className="mt-1 text-xs font-medium text-amber-800">Syarat: {l.decisionConditions}</p>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={loanBadge(l)} />
-            {l.status === "DISBURSED" ? <span className="text-xs text-mute">Kol {l.collectability}</span> : null}
-          </div>
+          ) : l.decisionConditions && l.status === "APPROVED" ? (
+            <p className="mt-1 text-xs font-medium text-amber-800">Bersyarat — lihat berkas</p>
+          ) : null}
         </div>
-      </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <StatusBadge status={loanBadge(l)} />
+          {l.status === "DISBURSED" ? <span className="rounded-full bg-canvas px-2.5 py-1 text-xs font-semibold text-mute">Kol {l.collectability}</span> : null}
+        </div>
+      </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button size="sm" variant="soft" onClick={onOpen}>
+        {l.schedule.length ? (
+          <Button size="sm" variant="ghost" onClick={() => setShowSchedule(true)}>
+            Jadwal angsuran
+          </Button>
+        ) : null}
+        <Button size="sm" variant="soft" onClick={onOpenBerkas}>
           {l.status === "DRAFT" ? "Tinjau pengajuan" : "Lihat berkas"}
         </Button>
-        {l.status === "DISBURSED" && canCollect && Number(l.outstandingPrincipal) > 0 ? (
+        {canSetor ? (
           <Link to={collectionHref(l.loanNo, l.schedule)}>
-            <Button size="sm" variant="ghost">
-              Setor
-            </Button>
+            <Button size="sm">Setor</Button>
           </Link>
         ) : null}
       </div>
-      {l.schedule.length ? (
-        <ul className="mt-3 max-h-40 overflow-auto text-xs text-mute">
-          {l.schedule.slice(0, 6).map((s) => (
-            <li key={s.id}>
-              #{s.sequence} {new Date(s.dueDate).toLocaleDateString("id-ID")} · {idr(Number(s.principalDue) + Number(s.interestDue))} · {s.status}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {showSchedule ? <LoanScheduleDialog loan={l} onClose={() => setShowSchedule(false)} canSetor={canSetor} /> : null}
     </Card>
+  );
+}
+
+const SCHEDULE_STATUS: Record<string, string> = {
+  PAID: "Lunas",
+  PARTIAL: "Sebagian",
+  DUE: "Belum",
+};
+
+function LoanScheduleDialog({
+  loan,
+  onClose,
+  canSetor,
+}: {
+  loan: LoanRow;
+  onClose: () => void;
+  canSetor: boolean;
+}) {
+  const paidCount = loan.schedule.filter((s) => s.status === "PAID").length;
+  const paidAmount = loan.schedule.reduce((sum, s) => sum + Number(s.principalPaid ?? 0) + Number(s.interestPaid ?? 0) + Number(s.penaltyPaid ?? 0), 0);
+  const dueAmount = loan.schedule.reduce((sum, s) => sum + Number(s.principalDue) + Number(s.interestDue) + Number(s.penaltyDue ?? 0), 0);
+
+  return (
+    <Dialog onClose={onClose} className="max-w-4xl">
+      <DialogHeader>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-leaf-dark">{loan.loanNo}</p>
+          <h2 className="mt-1 text-xl font-extrabold tracking-tight">Jadwal angsuran · {loan.member.name}</h2>
+          <p className="mt-1 text-sm text-mute">
+            {loan.product.name} · {paidCount}/{loan.schedule.length} lunas · terbayar {idr(paidAmount)} dari {idr(dueAmount)}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {canSetor ? (
+            <Link to={collectionHref(loan.loanNo, loan.schedule)}>
+              <Button size="sm">Setor</Button>
+            </Link>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Tutup
+          </Button>
+        </div>
+      </DialogHeader>
+      <DialogBody>
+        <div className="overflow-x-auto rounded-2xl border border-line/70">
+          <table className="w-full text-sm">
+            <thead className="bg-canvas/70">
+              <tr>
+                <Th>#</Th>
+                <Th>Jatuh tempo</Th>
+                <Th className="text-right">Pokok</Th>
+                <Th className="text-right">Bunga</Th>
+                <Th className="text-right">Jumlah</Th>
+                <Th className="text-right">Terbayar</Th>
+                <Th className="text-right">Sisa</Th>
+                <Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {loan.schedule.map((s) => {
+                const due = Number(s.principalDue) + Number(s.interestDue) + Number(s.penaltyDue ?? 0);
+                const paid = Number(s.principalPaid ?? 0) + Number(s.interestPaid ?? 0) + Number(s.penaltyPaid ?? 0);
+                const remaining = Math.max(0, due - paid);
+                return (
+                  <tr key={s.id} className="border-t border-line/70">
+                    <Td className="font-mono text-mute">{s.sequence}</Td>
+                    <Td className="whitespace-nowrap">{new Date(s.dueDate).toLocaleDateString("id-ID")}</Td>
+                    <Td className="text-right">{idr(Number(s.principalDue))}</Td>
+                    <Td className="text-right">{idr(Number(s.interestDue))}</Td>
+                    <Td className="text-right font-medium">{idr(due)}</Td>
+                    <Td className="text-right">{paid ? idr(paid) : "—"}</Td>
+                    <Td className="text-right">{remaining ? idr(remaining) : "—"}</Td>
+                    <Td>
+                      <StatusBadge status={SCHEDULE_STATUS[s.status] ?? s.status} />
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </DialogBody>
+    </Dialog>
   );
 }

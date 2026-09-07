@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { confirmAction, notify } from "../lib/notify";
 import { useWorkspace } from "../lib/workspace";
+import { BrandLogo } from "./BrandLogo";
 import { Icons } from "./icons";
 import { Avatar, cx } from "./kit";
 
@@ -77,14 +78,13 @@ export function Shell() {
 
   const nav = (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-14 shrink-0 items-center gap-3 pr-5">
-        <span className="grid h-10 w-10 place-items-center rounded-2xl bg-leaf-glow text-leaf-deep">
-          <Icons.spark className="h-5 w-5" />
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-lg font-extrabold leading-none tracking-tight">Mankopi</p>
-          <p className="mt-1.5 truncate text-xs text-white/45">Manajemen koperasi</p>
-        </div>
+      <div className="flex shrink-0 items-center gap-2.5 pr-2">
+        <BrandLogo size="compact" framed={false} className="shrink-0 mix-blend-screen" />
+        <p className="text-[13px] font-semibold leading-[1.25] text-white/85">
+          Manajemen
+          <br />
+          koperasi
+        </p>
       </div>
       <nav className="sidebar-scroll mt-5 min-h-0 flex-1 space-y-4">
         {visible.map((group) => (

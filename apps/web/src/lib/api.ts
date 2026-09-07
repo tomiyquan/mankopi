@@ -97,7 +97,15 @@ export const api = {
     request("/api/org/units", { method: "POST", body: JSON.stringify(body) }),
   updateUnit: (id: string, body: { name?: string; status?: string }) =>
     request(`/api/org/units/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  audit: (tenantId?: string) => request<AuditRow[]>(`/api/audit${tenantId ? `?tenantId=${tenantId}` : ""}`),
+  audit: (params?: { tenantId?: string; q?: string; page?: number; pageSize?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.tenantId) search.set("tenantId", params.tenantId);
+    if (params?.q) search.set("q", params.q);
+    if (params?.page) search.set("page", String(params.page));
+    if (params?.pageSize) search.set("pageSize", String(params.pageSize));
+    const qs = search.toString();
+    return request<AuditList>(`/api/audit${qs ? `?${qs}` : ""}`);
+  },
   health: () => request<{ status: string; timestamp: string }>("/api/health"),
   accounts: (tenantId?: string) =>
     request<AccountRow[]>(`/api/ledger/accounts${q(tenantId)}`),
@@ -157,11 +165,24 @@ function qYear(tenantId?: string, year?: number) {
 }
 
 export const ops = {
-  members: (tenantId?: string) => request<MemberRow[]>(`/api/members${q(tenantId)}`),
+  members: (params?: { tenantId?: string; q?: string; status?: string; page?: number; pageSize?: number }) => {
+    const search = new URLSearchParams();
+    if (params?.tenantId) search.set("tenantId", params.tenantId);
+    if (params?.q) search.set("q", params.q);
+    if (params?.status && params.status !== "ALL") search.set("status", params.status);
+    if (params?.page) search.set("page", String(params.page));
+    if (params?.pageSize) search.set("pageSize", String(params.pageSize));
+    const qs = search.toString();
+    return request<MemberList>(`/api/members${qs ? `?${qs}` : ""}`);
+  },
   createMember: (body: Record<string, unknown>, tenantId?: string) =>
     request(`/api/members${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
   updateMember: (id: string, body: Record<string, unknown>, tenantId?: string) =>
     request(`/api/members/${id}${q(tenantId)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  leaveMember: (id: string, body: { reason: string; leftOn?: string }, tenantId?: string) =>
+    request(`/api/members/${id}/leave${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
+  restoreMember: (id: string, tenantId?: string) =>
+    request(`/api/members/${id}/restore${q(tenantId)}`, { method: "POST", body: JSON.stringify({}) }),
   savingProducts: (tenantId?: string) => request<SavingProductRow[]>(`/api/savings/products${q(tenantId)}`),
   createSavingProduct: (body: Record<string, unknown>, tenantId?: string) =>
     request(`/api/savings/products${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
@@ -174,10 +195,20 @@ export const ops = {
     request(`/api/setup/provision${q(tenantId)}`, { method: "POST", body: JSON.stringify({}) }),
   postOpeningCapital: (body: { amount: number; cashCode?: string; postedOn?: string; memo?: string }, tenantId?: string) =>
     request(`/api/setup/opening-capital${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
-  mutateSaving: (body: { accountId: string; type: "SETOR" | "TARIK"; amount: number }, tenantId?: string) =>
-    request(`/api/savings/mutate${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
+  mutateSaving: (
+    body: {
+      accountId: string;
+      type: "SETOR" | "TARIK";
+      amount: number;
+      method?: "CASH" | "BANK" | "TRANSFER" | string;
+      note?: string;
+      counterAccountId?: string;
+    },
+    tenantId?: string,
+  ) => request<SavingTxnVoucher>(`/api/savings/mutate${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
   savingAccounts: (tenantId?: string) => request<SavingAccountRow[]>(`/api/savings/accounts${q(tenantId)}`),
   savingAccount: (id: string, tenantId?: string) => request<SavingAccountLedger>(`/api/savings/accounts/${id}${q(tenantId)}`),
+  savingTxn: (id: string, tenantId?: string) => request<SavingTxnVoucher>(`/api/savings/txns/${id}${q(tenantId)}`),
   loans: (tenantId?: string) => request<LoanRow[]>(`/api/loans${q(tenantId)}`),
   loanReview: (id: string, tenantId?: string) => request<LoanReview>(`/api/loans/${id}/review${q(tenantId)}`),
   loanProducts: (tenantId?: string) => request<LoanProductRow[]>(`/api/loans/products${q(tenantId)}`),
@@ -205,8 +236,9 @@ export const ops = {
     return request<CollectCard[]>(`/api/collection/today${qs ? `?${qs}` : ""}`);
   },
   receipts: (tenantId?: string) => request<ReceiptRow[]>(`/api/collection/receipts${q(tenantId)}`),
+  receipt: (id: string, tenantId?: string) => request<ReceiptRow>(`/api/collection/receipts/${id}${q(tenantId)}`),
   collect: (body: { loanId: string; amount: number; clientReceiptId: string }, tenantId?: string) =>
-    request(`/api/collection/receipts${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
+    request<{ receipt: { id: string; receiptNo: string } }>(`/api/collection/receipts${q(tenantId)}`, { method: "POST", body: JSON.stringify(body) }),
   voidReceipt: (id: string, tenantId?: string) =>
     request(`/api/collection/receipts/${id}/void${q(tenantId)}`, { method: "POST", body: JSON.stringify({}) }),
   analytics: (tenantId?: string) => request<AnalyticsRow>(`/api/analytics${q(tenantId)}`),
@@ -313,6 +345,8 @@ export type MemberRow = {
   memberType?: string | null;
   notes?: string | null;
   status: string;
+  leftOn?: string | null;
+  exitReason?: string | null;
   slikConsentAt?: string | null;
   branchId?: string | null;
   unitId?: string | null;
@@ -320,6 +354,13 @@ export type MemberRow = {
   unit?: { id: string; code: string; name: string; branchId: string } | null;
   savingAccounts: Array<{ id: string; accountNo: string; balance: string | number; product: SavingProductRow }>;
   loans: Array<{ id: string; loanNo: string; status: string }>;
+};
+
+export type MemberList = {
+  items: MemberRow[];
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
 export type TenantPolicy = {
@@ -361,20 +402,24 @@ export type SavingAccountRow = {
   balance: string | number;
   status: string;
   createdAt: string;
-  member: { id: string; memberNo: string; name: string };
+  member: { id: string; memberNo: string; name: string; phone?: string | null; status?: string };
   product: SavingProductRow;
   _count: { txns: number };
 };
 
 export type SavingLedgerRow = {
   id: string;
+  txnNo?: string;
   type: "SETOR" | "TARIK" | string;
+  method?: string;
+  methodLabel?: string;
   amount: number;
   occurredOn: string;
   createdAt: string;
   journalId: string | null;
   journalNo: string | null;
   memo: string | null;
+  note?: string | null;
   balanceAfter: number;
 };
 
@@ -384,10 +429,27 @@ export type SavingAccountLedger = {
   balance: number;
   status: string;
   openedOn: string;
-  member: { id: string; memberNo: string; name: string };
+  member: { id: string; memberNo: string; name: string; phone?: string | null; status?: string };
   product: SavingProductRow;
   summary: { txnCount: number; totalSetor: number; totalTarik: number };
   ledger: SavingLedgerRow[];
+};
+
+export type SavingTxnVoucher = {
+  id: string;
+  txnNo: string;
+  type: "SETOR" | "TARIK" | string;
+  method: string;
+  methodLabel: string;
+  amount: number;
+  note: string | null;
+  occurredOn: string;
+  journalNo: string | null;
+  balanceAfter: number;
+  account: { id: string; accountNo: string; productName: string; productKind: string };
+  member: { name: string; memberNo: string; phone?: string | null };
+  tenant: { name: string; legalName?: string | null };
+  counter: { accountNo: string; memberNo: string; memberName: string; productName: string } | null;
 };
 export type LoanProductRow = {
   id: string;
@@ -423,7 +485,18 @@ export type LoanRow = {
   conditionsClearedAt?: string | null;
   member: { id: string; name: string; memberNo: string };
   product: LoanProductRow;
-  schedule: Array<{ id: string; sequence: number; dueDate: string; principalDue: string | number; interestDue: string | number; status: string }>;
+  schedule: Array<{
+    id: string;
+    sequence: number;
+    dueDate: string;
+    principalDue: string | number;
+    interestDue: string | number;
+    penaltyDue?: string | number;
+    principalPaid?: string | number;
+    interestPaid?: string | number;
+    penaltyPaid?: string | number;
+    status: string;
+  }>;
 };
 export type LoanReview = {
   loan: LoanRow & {
@@ -526,8 +599,20 @@ export type ReceiptRow = {
   amount: string | number;
   paidOn: string;
   status?: string;
-  member: { name: string };
-  loan: { loanNo: string };
+  createdAt?: string;
+  voidedAt?: string | null;
+  tenant?: { name: string; legalName?: string | null };
+  member: { name: string; memberNo?: string; phone?: string | null; address?: string | null };
+  loan: { loanNo: string; productName?: string };
+  collectorName?: string | null;
+  journalNo?: string | null;
+  allocation?: {
+    principal: number;
+    interest: number;
+    penalty: number;
+    leftover: number;
+    items: Array<{ sequence: number | null; principal: number; interest: number; penalty: number }>;
+  };
 };
 export type AnalyticsRow = {
   members: number;
@@ -634,8 +719,16 @@ export type AuditRow = {
   id: string;
   action: string;
   resource: string;
+  resourceId?: string | null;
   createdAt: string;
   actor?: { name: string; email: string } | null;
+};
+
+export type AuditList = {
+  items: AuditRow[];
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
 export type AccountRow = {

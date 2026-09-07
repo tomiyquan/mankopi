@@ -10,8 +10,15 @@ export class OperationsController {
 
   @Get("members")
   @RequirePermissions("member:view")
-  members(@CurrentUser() user: AuthUser, @Query("tenantId") tenantId?: string) {
-    return this.ops.listMembers(scopeTenant(user, tenantId));
+  members(
+    @CurrentUser() user: AuthUser,
+    @Query("tenantId") tenantId?: string,
+    @Query("q") q?: string,
+    @Query("status") status?: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+  ) {
+    return this.ops.listMembers(scopeTenant(user, tenantId), { q, status, page, pageSize });
   }
 
   @Post("members")
@@ -29,6 +36,23 @@ export class OperationsController {
     @Body() body: Parameters<OperationsService["updateMember"]>[2],
   ) {
     return this.ops.updateMember(scopeTenant(user, tenantId), id, body, user.id);
+  }
+
+  @Post("members/:id/leave")
+  @RequirePermissions("member:create")
+  leaveMember(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query("tenantId") tenantId: string | undefined,
+    @Body() body: { reason?: string; leftOn?: string },
+  ) {
+    return this.ops.leaveMember(scopeTenant(user, tenantId), id, body, user.id);
+  }
+
+  @Post("members/:id/restore")
+  @RequirePermissions("member:create")
+  restoreMember(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("tenantId") tenantId?: string) {
+    return this.ops.restoreMember(scopeTenant(user, tenantId), id, user.id);
   }
 
   @Get("savings/products")
@@ -112,8 +136,28 @@ export class OperationsController {
 
   @Post("savings/mutate")
   @RequirePermissions("savings:post")
-  mutate(@CurrentUser() user: AuthUser, @Query("tenantId") tenantId: string | undefined, @Body() body: { accountId: string; type: "SETOR" | "TARIK"; amount: number; occurredOn?: string; tenantId?: string }) {
+  mutate(
+    @CurrentUser() user: AuthUser,
+    @Query("tenantId") tenantId: string | undefined,
+    @Body()
+    body: {
+      accountId: string;
+      type: "SETOR" | "TARIK";
+      amount: number;
+      occurredOn?: string;
+      method?: string;
+      note?: string;
+      counterAccountId?: string;
+      tenantId?: string;
+    },
+  ) {
     return this.ops.mutateSaving(scopeTenant(user, tenantId ?? body.tenantId), body, user.id);
+  }
+
+  @Get("savings/txns/:id")
+  @RequirePermissions("savings:view")
+  savingTxn(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("tenantId") tenantId?: string) {
+    return this.ops.getSavingTxn(scopeTenant(user, tenantId), id);
   }
 
   @Get("loans")
@@ -205,6 +249,12 @@ export class OperationsController {
   @RequirePermissions("collection:view")
   receipts(@CurrentUser() user: AuthUser, @Query("tenantId") tenantId?: string) {
     return this.ops.listReceipts(scopeTenant(user, tenantId));
+  }
+
+  @Get("collection/receipts/:id")
+  @RequirePermissions("collection:view")
+  receipt(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("tenantId") tenantId?: string) {
+    return this.ops.getReceipt(scopeTenant(user, tenantId), id);
   }
 
   @Post("collection/receipts/:id/void")

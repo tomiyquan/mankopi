@@ -2,8 +2,8 @@ import { FormEvent, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { notify } from "../lib/notify";
-import { Icons } from "../ui/icons";
-import { Button, Field, TextInput } from "../ui/kit";
+import { BrandLogo } from "../ui/BrandLogo";
+import { Button, Field, PasswordInput, TextInput } from "../ui/kit";
 
 export function LoginPage() {
   const { user, login } = useAuth();
@@ -31,45 +31,66 @@ export function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.1fr_0.9fr]">
-      <section className="mesh relative hidden overflow-hidden text-white lg:flex flex-col justify-between p-12">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-leaf-glow text-leaf-deep">
-            <Icons.spark className="h-5 w-5" />
-          </span>
-          <p className="text-xl font-extrabold">Mankopi</p>
-        </div>
+    <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
+      <section className="mesh relative hidden overflow-hidden text-white lg:flex flex-col justify-between p-12 xl:p-16">
+        <header className="flex items-start justify-between gap-6">
+          <div className="min-w-0 pt-1">
+            <p className="text-[1.65rem] font-extrabold leading-none tracking-tight">Mankopi</p>
+            <p className="mt-2 text-xs font-medium tracking-wide text-white/45">Konsol pengurus koperasi</p>
+          </div>
+          <BrandLogo size="badge" framed={false} className="shrink-0 mix-blend-screen" />
+        </header>
         <div className="max-w-lg">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-leaf-glow">SaaS koperasi</p>
-          <h1 className="mt-4 text-5xl font-extrabold leading-[1.1] tracking-tight">
-            Operasi koperasi yang rapi, tanpa kira-kira.
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-leaf-glow">Koperasi simpan-pinjam</p>
+          <h1 className="mt-4 text-[2.55rem] font-extrabold leading-[1.15] tracking-tight xl:text-[2.85rem]">
+            Tata kelola koperasi yang tertib, tercatat, dan akuntabel.
           </h1>
-          <p className="mt-5 max-w-md text-white/70 leading-7">
-            Multi-tenant, hak akses berjenjang, dan fondasi ledger untuk neraca serta penagihan harian.
+          <p className="mt-5 max-w-md text-[15px] leading-7 text-white/68">
+            Konsol operasional untuk keanggotaan, pembukuan, kredit, dan penagihan harian, dengan hak akses
+            berjenjang sesuai struktur organisasi.
           </p>
         </div>
-        <p className="text-sm text-white/40">Fase 1 — identitas, cabang, audit</p>
+        <p className="text-sm text-white/38">Identitas · pembukuan · jejak audit</p>
       </section>
-      <section className="flex items-center justify-center bg-canvas p-6">
-        <form onSubmit={onSubmit} className="page-enter w-full max-w-md rounded-[28px] border border-line bg-white p-8 shadow-card">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-leaf-dark">Selamat datang</p>
-          <h2 className="mt-2 text-3xl font-extrabold tracking-tight">Masuk ke konsol</h2>
-          <p className="mt-2 text-sm text-mute">
-            Operator platform: <span className="font-medium text-ink">admin@mankopi.local</span>. Admin koperasi
-            adalah Ketua, bukan manajer: <span className="font-medium text-ink">ketua@sejahtera.local</span>.
-          </p>
+      <section className="flex items-center justify-center bg-canvas px-4 py-10 sm:p-8">
+        <form
+          onSubmit={onSubmit}
+          className="page-enter w-full max-w-[420px] rounded-[28px] border border-line/90 bg-white p-7 shadow-card sm:p-9"
+        >
+          <div className="mb-7 flex items-center justify-between gap-4 lg:hidden">
+            <p className="text-lg font-extrabold tracking-tight">Mankopi</p>
+            <BrandLogo size="compact" className="rounded-xl ring-1 ring-line" />
+          </div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-leaf-dark">Konsol Mankopi</p>
+          <h2 className="mt-2 text-[1.75rem] font-extrabold tracking-tight text-ink">Masuk ke akun Anda</h2>
+          <p className="mt-2 text-sm leading-6 text-mute">Gunakan email pengurus atau operator platform yang terdaftar.</p>
           <div className="mt-8 space-y-4">
             <Field label="Email">
-              <TextInput value={email} onChange={(e) => setEmail(e.target.value)} type="email" required />
+              <TextInput
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                autoComplete="username"
+                required
+              />
             </Field>
             <Field label="Kata sandi">
-              <TextInput value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
+              <PasswordInput
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
             </Field>
           </div>
           {error ? <p className="mt-3 text-sm text-clay">{error}</p> : null}
-          <Button type="submit" disabled={pending} className="mt-6 w-full">
+          <Button type="submit" disabled={pending} className="mt-7 h-11 w-full text-[15px]">
             {pending ? "Memeriksa…" : "Masuk"}
           </Button>
+          <p className="mt-7 border-t border-line/80 pt-4 text-[11px] leading-5 text-mute">
+            Akun demo: <span className="font-medium text-ink">admin@mankopi.local</span> (platform) ·{" "}
+            <span className="font-medium text-ink">ketua@sejahtera.local</span> (ketua).
+          </p>
         </form>
       </section>
     </div>

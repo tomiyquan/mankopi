@@ -8,6 +8,7 @@ import { idr } from "../lib/money";
 import { useWorkspace } from "../lib/workspace";
 import { Avatar, Button, Card, MoneyInput, PageHeader, StatusBadge, TextInput, cx } from "../ui/kit";
 import { TenantGate } from "../ui/TenantGate";
+import { ReceiptPreview } from "./ReceiptPrint";
 
 const TABS = [
   { id: "due", label: "Jatuh tempo" },
@@ -113,6 +114,7 @@ export function CollectionPage() {
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [openId, setOpenId] = useState("");
+  const [printId, setPrintId] = useState<string | null>(null);
   const canCollect = Boolean(user?.permissions.includes("collection:create"));
 
   function setScope(next: "due" | "early") {
@@ -152,10 +154,11 @@ export function CollectionPage() {
         { loanId, amount: Number(amounts[loanId] || bills.find((b) => b.loanId === loanId)?.nextRemaining), clientReceiptId: crypto.randomUUID() },
         tenantId ?? undefined,
       ),
-    ...noticeHandlers({
-      success: "Setoran tercatat",
-      onSuccess: (_data, loanId) => {
+    ...noticeHandlers<{ receipt?: { id: string } }, string>({
+      success: "Setoran tercatat. Kwitansi siap dicetak.",
+      onSuccess: (data, loanId) => {
         setAmounts((s) => ({ ...s, [loanId]: "" }));
+        if (data.receipt?.id) setPrintId(data.receipt.id);
         refreshOps();
       },
     }),
@@ -177,7 +180,7 @@ export function CollectionPage() {
       <PageHeader
         kicker="Operasional"
         title="Penagihan"
-        description="Jatuh tempo: tagihan hari ini dan yang menunggak. Bayar lebih awal: angsuran yang belum hari H. Setoran: denda → bunga → pokok, dari angsuran tertua. Bunga tetap mengikuti jadwal."
+        description="Jatuh tempo: tagihan hari ini dan yang menunggak. Bayar lebih awal: angsuran yang belum hari H. Setelah setor, cetak kwitansi sebagai tanda bukti penyetoran."
       />
       <div className="flex flex-wrap gap-2">
         {TABS.map((t) => (
@@ -338,6 +341,15 @@ export function CollectionPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={r.status === "VOIDED" ? "VOIDED" : r.status ?? "POSTED"} />
+                  {r.status !== "VOIDED" ? (
+                    <Button size="sm" variant="ghost" onClick={() => setPrintId(r.id)}>
+                      Cetak
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" onClick={() => setPrintId(r.id)}>
+                      Lihat
+                    </Button>
+                  )}
                   {canCollect && r.status !== "VOIDED" ? (
                     <Button
                       size="sm"
@@ -365,6 +377,9 @@ export function CollectionPage() {
           )}
         </ul>
       </Card>
+      {printId ? (
+        <ReceiptPreview receiptId={printId} tenantId={tenantId ?? undefined} onClose={() => setPrintId(null)} />
+      ) : null}
     </TenantGate>
   );
 }

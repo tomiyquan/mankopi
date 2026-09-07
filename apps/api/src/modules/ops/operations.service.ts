@@ -31,12 +31,16 @@ import {
   type LoanDecisionKind,
 } from "./loan-decision";
 import { formatSavingAccountNo, withSavingRunningBalance } from "./saving-ledger";
+import { formatSavingTxnNo, parseSavingMethod, savingMethodError, savingMethodLabel, savingNoteError, savingTransferError } from "./saving-txn";
 import {
   formatMemberAddress,
   memberProfileError,
+  toDate,
   toMemberWrite,
   type MemberProfileInput,
 } from "./member-profile";
+import { memberExitError, memberRestoreError } from "./member-exit";
+import { memberListWhere, parseMemberPage, parseMemberPageSize } from "./member-query";
 
 function n(v: Prisma.Decimal | number | string | null | undefined) {
   return Number(v ?? 0);
@@ -218,17 +222,25 @@ export class OperationsService {
     }
   }
 
-  listMembers(tenantId: string) {
-    return this.prisma.db.member.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: "desc" },
-      include: {
-        savingAccounts: { include: { product: true }, orderBy: { accountNo: "asc" } },
-        loans: true,
-        branch: { select: { id: true, code: true, name: true } },
-        unit: { select: { id: true, code: true, name: true, branchId: true } },
-      },
-    });
+  listMembers(tenantId: string, input: { q?: string; status?: string; page?: string; pageSize?: string } = {}) {
+    const page = parseMemberPage(input.page);
+    const pageSize = parseMemberPageSize(input.pageSize);
+    const where = memberListWhere(tenantId, input.q, input.status);
+    return Promise.all([
+      this.prisma.db.member.findMany({
+        where,
+        orderBy: [{ name: "asc" }, { memberNo: "asc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          savingAccounts: { include: { product: true }, orderBy: { accountNo: "asc" } },
+          loans: { select: { id: true, loanNo: true, status: true } },
+          branch: { select: { id: true, code: true, name: true } },
+          unit: { select: { id: true, code: true, name: true, branchId: true } },
+        },
+      }),
+      this.prisma.db.member.count({ where }),
+    ]).then(([items, total]) => ({ items, total, page, pageSize }));
   }
 
   private async resolveOffice(tenantId: string, branchId?: string, unitId?: string | null) {
@@ -334,6 +346,57 @@ export class OperationsService {
     });
     await this.audit.record({ action: "membership.member.updated", resource: "member", resourceId: member.id, tenantId, actorId });
     return updated;
+  }
+
+  private memberDetail(id: string) {
+    return this.prisma.db.member.findUnique({
+      where: { id },
+      include: {
+        savingAccounts: { include: { product: true }, orderBy: { accountNo: "asc" } },
+        loans: true,
+        branch: { select: { id: true, code: true, name: true } },
+        unit: { select: { id: true, code: true, name: true, branchId: true } },
+      },
+    });
+  }
+
+  async leaveMember(tenantId: string, memberId: string, input: { reason?: string; leftOn?: string }, actorId?: string) {
+    const member = await this.prisma.db.member.findFirst({
+      where: { id: memberId, tenantId },
+      include: { loans: { select: { status: true } } },
+    });
+    if (!member) throw new NotFoundException({ message: "Anggota tidak ditemukan" });
+    const reason = (input.reason ?? "").trim();
+    reject(memberExitError({ status: member.status, loans: member.loans, reason, leftOn: input.leftOn }));
+    await this.prisma.db.member.update({
+      where: { id: member.id },
+      data: {
+        status: "LEFT",
+        leftOn: toDate(input.leftOn) ?? new Date(),
+        exitReason: reason,
+      },
+    });
+    await this.audit.record({
+      action: "membership.member.left",
+      resource: "member",
+      resourceId: member.id,
+      tenantId,
+      actorId,
+      metadata: { reason },
+    });
+    return this.memberDetail(member.id);
+  }
+
+  async restoreMember(tenantId: string, memberId: string, actorId?: string) {
+    const member = await this.prisma.db.member.findFirst({ where: { id: memberId, tenantId } });
+    if (!member) throw new NotFoundException({ message: "Anggota tidak ditemukan" });
+    reject(memberRestoreError(member.status));
+    await this.prisma.db.member.update({
+      where: { id: member.id },
+      data: { status: "ACTIVE", leftOn: null, exitReason: null },
+    });
+    await this.audit.record({ action: "membership.member.restored", resource: "member", resourceId: member.id, tenantId, actorId });
+    return this.memberDetail(member.id);
   }
 
   async listSavingProducts(tenantId: string) {
@@ -448,7 +511,7 @@ export class OperationsService {
       where: { tenantId },
       orderBy: { accountNo: "asc" },
       include: {
-        member: { select: { id: true, memberNo: true, name: true } },
+        member: { select: { id: true, memberNo: true, name: true, phone: true, status: true } },
         product: true,
         _count: { select: { txns: true } },
       },
@@ -459,7 +522,7 @@ export class OperationsService {
     const account = await this.prisma.db.savingAccount.findFirst({
       where: { tenantId, OR: [{ id: idOrNo }, { accountNo: idOrNo }] },
       include: {
-        member: { select: { id: true, memberNo: true, name: true } },
+        member: { select: { id: true, memberNo: true, name: true, phone: true, status: true } },
         product: true,
       },
     });
@@ -481,13 +544,17 @@ export class OperationsService {
         const journal = row.journalId ? journalById.get(row.journalId) : undefined;
         return {
           id: row.id,
+          txnNo: row.txnNo,
           type: row.type,
+          method: row.method,
           amount: n(row.amount),
           occurredOn: row.occurredOn,
           createdAt: row.createdAt,
           journalId: row.journalId,
           journalNo: journal?.number ?? null,
-          memo: journal?.memo ?? null,
+          memo: row.note ?? journal?.memo ?? null,
+          note: row.note,
+          methodLabel: savingMethodLabel(row.method),
         };
       }),
     );
@@ -513,14 +580,34 @@ export class OperationsService {
 
   async mutateSaving(
     tenantId: string,
-    input: { accountId: string; type: "SETOR" | "TARIK"; amount: number; occurredOn?: string },
+    input: {
+      accountId: string;
+      type: "SETOR" | "TARIK";
+      amount: number;
+      occurredOn?: string;
+      method?: string;
+      note?: string;
+      counterAccountId?: string;
+    },
     actorId?: string,
   ) {
+    reject(savingMethodError(input.method));
+    reject(savingNoteError(input.note));
+    const method = parseSavingMethod(input.method) ?? "CASH";
+    reject(savingTransferError(method, input.accountId, input.counterAccountId));
+    if (input.type !== "SETOR" && input.type !== "TARIK") {
+      throw new BadRequestException({ message: "Jenis mutasi harus setor atau tarik" });
+    }
+
     const account = await this.prisma.db.savingAccount.findFirst({
       where: { id: input.accountId, tenantId },
-      include: { product: true, member: true },
+      include: { product: true, member: true, tenant: { select: { name: true, legalName: true } } },
     });
     if (!account) throw new NotFoundException({ message: "Rekening simpanan tidak ditemukan" });
+    if (account.member.status === "LEFT" && input.type === "SETOR") {
+      throw new ConflictException({ message: "Anggota sudah berhenti. Setoran baru tidak diterima." });
+    }
+
     const amount = Number(input.amount);
     const kind = parseSavingKind(account.product.kind);
     if (!kind) throw new BadRequestException({ message: "Jenis produk simpanan tidak valid" });
@@ -529,36 +616,176 @@ export class OperationsService {
     } else {
       reject(savingDepositError(kind, n(account.product.minAmount), n(account.balance), amount));
     }
-    const cash = await this.ledger.accountByCode(tenantId, "1101");
-    const contra = await this.ledger.accountByCode(tenantId, account.product.accountCode);
+
+    const counter =
+      method === "TRANSFER"
+        ? await this.prisma.db.savingAccount.findFirst({
+            where: { id: input.counterAccountId, tenantId },
+            include: { product: true, member: true },
+          })
+        : null;
+    if (method === "TRANSFER" && !counter) throw new NotFoundException({ message: "Rekening sumber atau tujuan tidak ditemukan" });
+
+    const source = input.type === "SETOR" && counter ? counter : account;
+    const dest = input.type === "SETOR" && counter ? account : counter;
+    if (method === "TRANSFER" && dest) {
+      if (dest.member.status === "LEFT") {
+        throw new ConflictException({ message: "Rekening tujuan milik anggota yang sudah berhenti." });
+      }
+      const destKind = parseSavingKind(dest.product.kind);
+      if (!destKind) throw new BadRequestException({ message: "Jenis produk rekening tujuan tidak valid" });
+      if (input.type === "TARIK") {
+        reject(savingDepositError(destKind, n(dest.product.minAmount), n(dest.balance), amount));
+      }
+      if (input.type === "SETOR") {
+        reject(savingWithdrawError(source.product.withdrawable, n(source.balance), amount));
+      }
+    }
+
+    const note = input.note?.trim() || null;
     const occurredOn = input.occurredOn ?? new Date().toISOString().slice(0, 10);
+    const methodText = savingMethodLabel(method);
+    const actionLabel = input.type === "SETOR" ? "Setor" : "Tarik";
+    const memo = [actionLabel, account.product.name, account.member.memberNo, methodText, note].filter(Boolean).join(" · ");
+    const contra = await this.ledger.accountByCode(tenantId, account.product.accountCode);
+    const lines =
+      method === "TRANSFER" && counter
+        ? input.type === "SETOR"
+          ? [
+              { accountId: (await this.ledger.accountByCode(tenantId, source.product.accountCode)).id, debit: amount, credit: 0 },
+              { accountId: contra.id, debit: 0, credit: amount },
+            ]
+          : [
+              { accountId: contra.id, debit: amount, credit: 0 },
+              { accountId: (await this.ledger.accountByCode(tenantId, dest!.product.accountCode)).id, debit: 0, credit: amount },
+            ]
+        : input.type === "SETOR"
+          ? [
+              { accountId: (await this.ledger.accountByCode(tenantId, method === "BANK" ? "1102" : "1101")).id, debit: amount, credit: 0 },
+              { accountId: contra.id, debit: 0, credit: amount },
+            ]
+          : [
+              { accountId: contra.id, debit: amount, credit: 0 },
+              { accountId: (await this.ledger.accountByCode(tenantId, method === "BANK" ? "1102" : "1101")).id, debit: 0, credit: amount },
+            ];
+
     const journal = await this.ledger.postFromSource(
       tenantId,
       {
         postedOn: occurredOn,
-        memo: `${input.type === "SETOR" ? "Setor" : "Tarik"} ${account.product.name} ${account.member.memberNo}`,
-        sourceType: input.type === "SETOR" ? "savings.deposit" : "savings.withdraw",
+        memo,
+        sourceType: method === "TRANSFER" ? "savings.transfer" : input.type === "SETOR" ? "savings.deposit" : "savings.withdraw",
         sourceId: account.id,
-        lines:
-          input.type === "SETOR"
-            ? [
-                { accountId: cash.id, debit: amount, credit: 0 },
-                { accountId: contra.id, debit: 0, credit: amount },
-              ]
-            : [
-                { accountId: contra.id, debit: amount, credit: 0 },
-                { accountId: cash.id, debit: 0, credit: amount },
-              ],
+        lines,
       },
       actorId,
     );
-    const next = n(account.balance) + (input.type === "SETOR" ? amount : -amount);
-    await this.prisma.db.savingAccount.update({ where: { id: account.id }, data: { balance: next } });
+
+    const nextPrimary = n(account.balance) + (input.type === "SETOR" ? amount : -amount);
+    await this.prisma.db.savingAccount.update({ where: { id: account.id }, data: { balance: nextPrimary } });
+    if (counter) {
+      const nextCounter = n(counter.balance) + (input.type === "SETOR" ? -amount : amount);
+      await this.prisma.db.savingAccount.update({ where: { id: counter.id }, data: { balance: nextCounter } });
+    }
+
+    const used = await this.prisma.db.savingTxn.count({ where: { tenantId } });
+    const occurred = new Date(`${occurredOn}T00:00:00Z`);
     const txn = await this.prisma.db.savingTxn.create({
-      data: { tenantId, accountId: account.id, type: input.type, amount, journalId: journal.id, occurredOn: new Date(`${occurredOn}T00:00:00Z`) },
+      data: {
+        tenantId,
+        accountId: account.id,
+        txnNo: formatSavingTxnNo(used + 1),
+        type: input.type,
+        amount,
+        method,
+        note,
+        counterAccountId: counter?.id ?? null,
+        journalId: journal.id,
+        occurredOn: occurred,
+      },
     });
+    if (counter) {
+      await this.prisma.db.savingTxn.create({
+        data: {
+          tenantId,
+          accountId: counter.id,
+          txnNo: formatSavingTxnNo(used + 2),
+          type: input.type === "SETOR" ? "TARIK" : "SETOR",
+          amount,
+          method: "TRANSFER",
+          note,
+          counterAccountId: account.id,
+          journalId: journal.id,
+          occurredOn: occurred,
+        },
+      });
+    }
     await this.audit.record({ action: "savings.transaction.posted", resource: "saving_txn", resourceId: txn.id, tenantId, actorId });
-    return { txn, journal, balance: next };
+    return this.savingVoucher(tenantId, txn.id);
+  }
+
+  async getSavingTxn(tenantId: string, id: string) {
+    return this.savingVoucher(tenantId, id);
+  }
+
+  private async savingVoucher(tenantId: string, id: string) {
+    const txn = await this.prisma.db.savingTxn.findFirst({
+      where: { id, tenantId },
+      include: {
+        account: {
+          include: {
+            member: { select: { name: true, memberNo: true, phone: true } },
+            product: true,
+            tenant: { select: { name: true, legalName: true } },
+          },
+        },
+      },
+    });
+    if (!txn) throw new NotFoundException({ message: "Bukti transaksi simpanan tidak ditemukan" });
+    const journal = txn.journalId
+      ? await this.prisma.db.journalEntry.findFirst({ where: { id: txn.journalId, tenantId }, select: { number: true } })
+      : null;
+    const counter = txn.counterAccountId
+      ? await this.prisma.db.savingAccount.findFirst({
+          where: { id: txn.counterAccountId, tenantId },
+          include: { member: { select: { name: true, memberNo: true } }, product: true },
+        })
+      : null;
+    const history = await this.prisma.db.savingTxn.findMany({
+      where: { tenantId, accountId: txn.accountId },
+      orderBy: [{ occurredOn: "asc" }, { createdAt: "asc" }],
+      select: { id: true, type: true, amount: true },
+    });
+    const running = withSavingRunningBalance(history.map((row) => ({ id: row.id, type: row.type, amount: n(row.amount) })));
+    const balanceAfter = running.find((row) => row.id === txn.id)?.balanceAfter ?? n(txn.account.balance);
+    return {
+      id: txn.id,
+      txnNo: txn.txnNo,
+      type: txn.type,
+      method: txn.method,
+      methodLabel: savingMethodLabel(txn.method),
+      amount: n(txn.amount),
+      note: txn.note,
+      occurredOn: txn.occurredOn,
+      journalNo: journal?.number ?? null,
+      balanceAfter,
+      account: {
+        id: txn.account.id,
+        accountNo: txn.account.accountNo,
+        productName: txn.account.product.name,
+        productKind: txn.account.product.kind,
+      },
+      member: txn.account.member,
+      tenant: txn.account.tenant,
+      counter: counter
+        ? {
+            accountNo: counter.accountNo,
+            memberNo: counter.member.memberNo,
+            memberName: counter.member.name,
+            productName: counter.product.name,
+          }
+        : null,
+    };
   }
 
   listLoans(tenantId: string) {
@@ -638,7 +865,11 @@ export class OperationsService {
 
     const flags: Array<{ level: "ok" | "warn"; code: string; label: string }> = [];
     if (loan.member.status !== "ACTIVE") {
-      flags.push({ level: "warn", code: "member", label: "Anggota tidak aktif" });
+      flags.push({
+        level: "warn",
+        code: "member",
+        label: loan.member.status === "LEFT" ? "Anggota sudah berhenti" : "Anggota tidak aktif",
+      });
     } else {
       flags.push({ level: "ok", code: "member", label: "Anggota aktif" });
     }
@@ -1032,6 +1263,9 @@ export class OperationsService {
     const product = await this.prisma.db.loanProduct.findFirst({ where: { id: input.productId, tenantId, status: "ACTIVE" } });
     const member = await this.prisma.db.member.findFirst({ where: { id: input.memberId, tenantId } });
     if (!product || !member) throw new NotFoundException({ message: "Produk atau anggota tidak ditemukan" });
+    if (member.status !== "ACTIVE") {
+      throw new ConflictException({ message: "Anggota sudah berhenti, tidak bisa mengajukan pinjaman" });
+    }
     reject(loanLimitError(input.principal, n(product.minPrincipal), product.maxPrincipal == null ? null : n(product.maxPrincipal)));
     const tenant = await this.prisma.db.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
     const policy = parseTenantPolicy(tenant?.settings);
@@ -1334,15 +1568,78 @@ export class OperationsService {
       include: { member: true, loan: true },
     });
     await this.audit.record({ action: "collection.receipt.received", resource: "receipt", resourceId: receipt.id, tenantId, actorId });
-    return { receipt, journal, allocation: alloc };
+    return { receipt: { id: receipt.id, receiptNo: receipt.receiptNo }, journal, allocation: alloc };
   }
 
-  listReceipts(tenantId: string) {
-    return this.prisma.db.collectionReceipt.findMany({
-      where: { tenantId },
+  async listReceipts(tenantId: string) {
+    return this.loadReceipts(tenantId);
+  }
+
+  async getReceipt(tenantId: string, id: string) {
+    const rows = await this.loadReceipts(tenantId, id);
+    const row = rows[0];
+    if (!row) throw new NotFoundException({ message: "Kwitansi tidak ditemukan" });
+    return row;
+  }
+
+  private async loadReceipts(tenantId: string, id?: string) {
+    const tenant = await this.prisma.db.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, legalName: true },
+    });
+    const rows = await this.prisma.db.collectionReceipt.findMany({
+      where: { tenantId, ...(id ? { id } : {}) },
       orderBy: { createdAt: "desc" },
-      take: 50,
-      include: { member: true, loan: true },
+      take: id ? 1 : 50,
+      include: {
+        member: { select: { name: true, memberNo: true, phone: true, address: true } },
+        loan: {
+          select: {
+            loanNo: true,
+            product: { select: { name: true } },
+            schedule: { select: { id: true, sequence: true } },
+          },
+        },
+        collector: { select: { name: true } },
+      },
+    });
+    const journalIds = rows.map((row) => row.journalId).filter((value): value is string => Boolean(value));
+    const journals = journalIds.length
+      ? await this.prisma.db.journalEntry.findMany({
+          where: { tenantId, id: { in: journalIds } },
+          select: { id: true, number: true },
+        })
+      : [];
+    const journalNo = new Map(journals.map((row) => [row.id, row.number]));
+    return rows.map((row) => {
+      const alloc = parseReceiptAlloc(row.allocation);
+      const sequenceById = new Map(row.loan.schedule.map((item) => [item.id, item.sequence]));
+      return {
+        id: row.id,
+        receiptNo: row.receiptNo,
+        amount: n(row.amount),
+        paidOn: row.paidOn,
+        status: row.status,
+        createdAt: row.createdAt,
+        voidedAt: row.voidedAt,
+        tenant: { name: tenant?.name ?? "Koperasi", legalName: tenant?.legalName ?? null },
+        member: row.member,
+        loan: { loanNo: row.loan.loanNo, productName: row.loan.product.name },
+        collectorName: row.collector?.name ?? null,
+        journalNo: row.journalId ? journalNo.get(row.journalId) ?? null : null,
+        allocation: {
+          principal: alloc.principal,
+          interest: alloc.interest,
+          penalty: alloc.penalty,
+          leftover: alloc.leftover,
+          items: alloc.items.map((item) => ({
+            sequence: sequenceById.get(item.id) ?? null,
+            principal: item.principal,
+            interest: item.interest,
+            penalty: item.penalty,
+          })),
+        },
+      };
     });
   }
 

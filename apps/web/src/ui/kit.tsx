@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TdHTMLAttributes, type TextareaHTMLAttributes, type ThHTMLAttributes } from "react";
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TdHTMLAttributes, type TextareaHTMLAttributes, type ThHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { formatRupiahInput, rupiahDigits } from "../lib/money";
+import { Icons } from "./icons";
 
 export function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -145,6 +146,24 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cx(control, props.className)} {...props} />;
 }
 
+export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <input {...props} type={visible ? "text" : "password"} className={cx(control, "pr-11", props.className)} />
+      <button
+        type="button"
+        className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-xl text-mute transition hover:text-ink focus-visible:text-ink"
+        aria-label={visible ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"}
+        aria-pressed={visible}
+        onClick={() => setVisible((current) => !current)}
+      >
+        {visible ? <Icons.eyeOff className="h-[18px] w-[18px]" /> : <Icons.eye className="h-[18px] w-[18px]" />}
+      </button>
+    </div>
+  );
+}
+
 export function MoneyInput({
   value,
   onValueChange,
@@ -179,11 +198,11 @@ export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === "ACTIVE" || status === "ok" || status === "Sehat" || status === "OPEN" || status === "POSTED" || status === "DISBURSED" || status === "PAID" || status === "APPROVED" || status === "Disetujui" || status === "Dicairkan"
+    status === "ACTIVE" || status === "ok" || status === "Sehat" || status === "OPEN" || status === "POSTED" || status === "DISBURSED" || status === "PAID" || status === "APPROVED" || status === "Disetujui" || status === "Dicairkan" || status === "Lunas"
       ? "bg-leaf-mist text-leaf-dark"
-      : status === "TRIAL" || status === "CLOSED" || status === "Disetujui bersyarat"
+      : status === "TRIAL" || status === "CLOSED" || status === "Disetujui bersyarat" || status === "PARTIAL" || status === "Sebagian"
         ? "bg-amber-50 text-amber-800"
-        : status === "SUSPENDED" || status === "DISABLED" || status === "INACTIVE" || status === "REVERSED" || status === "VOIDED" || status === "REJECTED" || status === "Ditolak"
+        : status === "SUSPENDED" || status === "DISABLED" || status === "INACTIVE" || status === "LEFT" || status === "REVERSED" || status === "VOIDED" || status === "REJECTED" || status === "Ditolak"
           ? "bg-red-50 text-clay"
           : "bg-canvas text-mute";
   return <span className={cx("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold capitalize", tone)}>{status.toLowerCase()}</span>;

@@ -9,8 +9,14 @@ export class AuditController {
 
   @Get()
   @RequirePermissions("audit:view")
-  list(@CurrentUser() user: AuthUser, @Query("tenantId") tenantId?: string) {
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query("tenantId") tenantId?: string,
+    @Query("q") q?: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+  ) {
     const scope = user.isPlatformAdmin ? tenantId : user.tenantId ?? undefined;
-    return this.audit.list(scope);
+    return this.audit.list({ tenantId: scope, q, page, pageSize });
   }
 }
